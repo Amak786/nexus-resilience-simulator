@@ -33,8 +33,15 @@ export function TreeView({ nodes, maxNodes = 63 }: { nodes: NodeView[]; maxNodes
           const p = pos.get(n.id)!;
           return (
             <g key={n.id} transform={`translate(${px(p.x)} ${py(p.depth)})`} className={`tree-node ${n.color.toLowerCase()}`}>
-              <circle r={22} />
-              <text y={4} textAnchor="middle">{n.key.length > 9 ? n.key.slice(0, 9) + '…' : n.key}</text>
+              <circle r={24} />
+              {n.key.includes('/') ? (
+                <text textAnchor="middle">
+                  <tspan x={0} y={-2}>{n.key.split('/')[0]}</tspan>
+                  <tspan x={0} y={9} className="tree-sub">{n.key.split('/')[1].slice(0, 9)}</tspan>
+                </text>
+              ) : (
+                <text y={4} textAnchor="middle">{n.key.length > 9 ? n.key.slice(0, 9) + '…' : n.key}</text>
+              )}
               <title>{`${n.key} (${n.color}, subtree size ${n.subtreeSize})`}</title>
             </g>
           );

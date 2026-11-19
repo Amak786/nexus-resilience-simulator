@@ -289,3 +289,4 @@ summary { cursor: pointer; font-weight: 600; font-size: 0.88rem; }
   .hero { grid-template-columns: 1fr; padding: 22px 18px; }
   .hero h1 { font-size: 1.45rem; }
 }
+.tree-node .tree-sub { font-size: 7.5px; font-weight: 500; }
