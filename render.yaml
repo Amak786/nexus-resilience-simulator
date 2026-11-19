@@ -1,0 +1,16 @@
+# Render Blueprint: one free web service that serves both the API and the website.
+# Render sets PORT automatically; the app reads it.
+services:
+  - type: web
+    name: nexus-resilience
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      # Only needed if you also host the front end separately (e.g. on Vercel). Comma-separated origins.
+      - key: CORS_ALLOWED_ORIGINS
+        value: http://localhost:5173
+      - key: MAX_REQUEST_BYTES
+        value: "2097152"

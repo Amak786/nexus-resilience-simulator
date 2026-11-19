@@ -1,0 +1,53 @@
+package edu.nexus.config;
+
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.info.License;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+/** CORS (origins from configuration, never "*"), request-size filter and OpenAPI metadata. */
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+
+    private final NexusProperties props;
+
+    public WebConfig(NexusProperties props) {
+        this.props = props;
+    }
+
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        String[] origins = props.corsAllowedOrigins() == null ? new String[0]
+                : props.corsAllowedOrigins().stream().map(String::trim).filter(s -> !s.isEmpty()).toArray(String[]::new);
+        registry.addMapping("/api/**")
+                .allowedOrigins(origins)
+                .allowedMethods("GET", "POST", "OPTIONS")
+                .allowedHeaders("Content-Type")
+                .maxAge(3600);
+    }
+
+    @Bean
+    public FilterRegistrationBean<RequestSizeLimitFilter> requestSizeLimitFilter() {
+        FilterRegistrationBean<RequestSizeLimitFilter> bean =
+                new FilterRegistrationBean<>(new RequestSizeLimitFilter(props.maxRequestBytes()));
+        bean.addUrlPatterns("/api/*");
+        bean.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return bean;
+    }
+
+    @Bean
+    public OpenAPI nexusOpenApi() {
+        return new OpenAPI().info(new Info()
+                .title("NEXUS API - Infrastructure Failure & Resilience Simulator")
+                .version("1.0.0")
+                .description("Java implementations of Edmonds-Karp / Ford-Fulkerson max flow with min cut, DSU, "
+                        + "red-black tree, Bloom filter, segment tree, randomized Quickselect and metric TSP "
+                        + "2-approximation. All bundled data is synthetic; results are decision support only.")
+                .license(new License().name("MIT")));
+    }
+}

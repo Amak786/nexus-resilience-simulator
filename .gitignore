@@ -1,0 +1,16 @@
+# build output
+backend/target/
+frontend/dist/
+frontend/node_modules/
+# local tooling
+.claude/
+*.log
+.idea/
+.vscode/
+*.iml
+.DS_Store
+# env files with real values (examples are committed)
+.env
+.env.local
+frontend/.env
+frontend/.env.local
