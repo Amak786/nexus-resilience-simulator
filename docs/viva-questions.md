@@ -1,121 +1,45 @@
-# Viva question bank (with simple, truthful answers)
+# Viva questions and simple, truthful answers
 
-## Network flow
+**Is this real data?** The road geometry, one-way rules and map notes are real OpenStreetMap data (snapshot date shown in the
+app). Travel times are derived from speed tags or defaults, capacities are a modelled proxy, and there is no live traffic.
 
-**Q. Why is max flow the right model for relief delivery?**
-Depots have limited stock and roads have limited throughput; we want the largest total that can reach demand zones. Add a
-super source feeding depots (capacity = stock) and a super sink fed by zones (capacity = demand), and the maximum s-t flow is
-exactly the most kits we can deliver in one window.
+**How do roads become a graph?** Intersections (nodes shared by two or more roads) and road ends are nodes; the piece of
+road between two consecutive nodes is a segment. Two-way segments give two directed arcs, one-way segments one.
 
-**Q. Ford-Fulkerson vs Edmonds-Karp?**
-Same method: augment along paths in the residual graph. Ford-Fulkerson (ours uses DFS) picks any path, so its number of
-augmentations can depend on capacity values: O(E·|f*|). Edmonds-Karp always picks a shortest path (BFS), which bounds the
-augmentations by O(VE), giving O(VE²) regardless of capacities. They are one technique family, not two algorithms.
+**Why a Fibonacci heap?** Dijkstra does many decrease-key operations. A Fibonacci heap does decrease-key in O(1) amortized
+and extract-min in O(log n) amortized, so Dijkstra is O(E + V log V).
 
-**Q. In your benchmark FF was faster. Isn't EK supposed to be better?**
-EK has a better *worst-case* guarantee. On random graphs DFS often finds long paths that push a lot of flow, so it can be
-faster in practice. Our test with a capacity-1 middle edge shows the worst case: BFS needs 2 augmentations while an unlucky
-DFS order could need 2,000,000.
+**Is it faster?** Not in our measurements: about 2× slower than `PriorityQueue`. It has many pointers and poor cache
+locality, and road graphs are sparse, so the asymptotic gain doesn't show. We report this rather than hide it.
 
-**Q. What are reverse (residual) edges for?**
-They let a later path undo flow sent earlier. Our test `reverseArcCancelsFlow` builds a graph where DFS first sends flow
-through a→b and the optimum must cancel it; the trace marks the path that used the reverse arc.
+**What are consolidation and cascading cuts?** Extract-min links roots of equal degree until all degrees differ (this keeps
+trees "Fibonacci-sized"). When a node loses a second child it is cut too, which keeps degrees at most log_φ n.
 
-**Q. How do you know the flow is maximum?**
-After the algorithm stops, nodes reachable from s in the residual graph form a cut whose capacity equals the flow (max-flow
-min-cut theorem). The code checks this equality and conservation on every request, and the tests assert it.
+**Ford-Fulkerson vs Edmonds-Karp?** Same method; EK picks shortest (BFS) augmenting paths, which bounds the number of
+augmentations by O(VE) whatever the capacities are. FF with DFS depends on the flow value: O(E·|f*|) for integer capacities.
 
-**Q. What does a min-cut edge mean in the city?**
-It is a saturated link whose capacity limits total delivery: a road (raise its capacity), a depot's stock (more stock), or a
-zone's demand (that zone is fully served, so it is not a bottleneck).
+**What does the min cut mean here?** In the capacity model, it is the cheapest set of directed segments that separates the
+sink from the source; its capacity equals the max flow. It is not a prediction of real-world impact.
 
-**Q. Does max flow solve multi-depot inventory allocation?**
-No. It is single-commodity and single-period, with no travel times, schedules or fairness. It answers "how much can move
-right now and where is the bottleneck", which supports planning but is not the whole problem.
+**Why can't DSU handle road closures directly?** DSU only merges sets. To remove roads we rebuild it from the remaining roads.
 
-## DSU
+**Why a red-black tree for notes?** We need records ordered by time, range queries and inserts when new notes arrive, all
+in O(log n). The key (time, id) is unique.
 
-**Q. Why DSU for connectivity, and why a separate graph?**
-Connectivity ("is there any physical link?") ignores direction and capacity, so we use an undirected graph. DSU answers
-"same component?" in near-constant amortized time.
+**Can the Bloom filter lose a note?** No false negatives here (insertion-only, fixed seed). It can give false positives, so
+every "possibly present" id is checked against the exact id set before being treated as a duplicate.
 
-**Q. Union by rank and path compression?**
-Rank keeps trees shallow by attaching the shorter under the taller; path compression points visited nodes straight at the
-root. Together: O(α(n)) amortized, effectively constant.
+**What is the segment tree used for?** Notes per day: total in a date range, busiest day (max) and quietest (min) in
+O(log n). Every answer is cross-checked with a scan.
 
-**Q. How do you handle a road failure if DSU can't delete edges?**
-We rebuild the DSU from the remaining roads. It is O((V+E)α(V)) per rebuild, cheap at city scale.
+**Why Quickselect, and when is a percentile meaningless?** P50/P90 in expected O(n) without sorting. With fewer than 30
+observations we flag the result as not meaningful.
 
-## Red-black tree
+**Why is the TSP tour at most twice optimal?** The MST costs at most the optimal tour; walking the tree costs twice the MST;
+shortcuts never add length because the planning distances satisfy the triangle inequality. With one-way roads we use
+max(d(i,j), d(j,i)) to keep the matrix symmetric and metric; the drivable route is never longer than the plan.
 
-**Q. Why a red-black tree for incidents?**
-Priorities change all the time; we need insert, delete and ordered traversal in O(log n) worst case. A heap gives fast max
-but not ordered listing or rank; a sorted array has O(n) inserts.
+**What would make this production-grade?** Licensed live traffic data, measured capacities, residential roads, validation
+with real observations, monitoring, and authentication. None of these are claimed today.
 
-**Q. What are the invariants?** Root black; no red node with a red child; every root-to-leaf path has the same number of
-black nodes; BST order. They imply height ≤ 2 log₂(n+1).
-
-**Q. How is an update done?** The key (score, id) changes, so delete the old key and insert the new one: two O(log n) operations.
-
-**Q. Why the id tie-breaker?** Keys must be unique in the tree; ids are unique, so (score, id) never ties.
-
-**Q. Is the score a real risk model?** No. It is a transparent rule (200·severity + min(300, people/50) + zone
-vulnerability %) for the demo, not a validated prediction.
-
-## Bloom filter (CO5)
-
-**Q. Can it have false negatives?** Not in our insertion-only setting: added bits are never cleared and the seed is fixed.
-Deletion, a seed change or corruption could cause them, and we support none of those.
-
-**Q. False positives?** Yes: all k bits may have been set by other ids. Probability ≈ (1−e^(−kn/m))^k. Every possible hit
-is checked against the exact registry, so final verdicts are exact.
-
-**Q. How are m and k chosen?** m = −n ln p / (ln 2)², k = (m/n) ln 2: about 9.6 bits and 7 hashes per id at p = 1%.
-
-**Q. How do you measure the real false-positive rate?** Generate ids we have verified are absent, query them, and count
-positives. All of those are false positives.
-
-## Segment tree
-
-**Q. Why not just loop over the array?** A loop is O(range length) per query. The segment tree is O(log n) for range sum,
-range max and range add (lazy propagation), which matters when queries and updates are interleaved.
-
-**Q. What is lazy propagation?** A range update tags whole covered nodes instead of touching every element; tags are pushed
-to children only when a later query needs to look inside.
-
-**Q. How is the worst window found?** A range sum for every start hour: O(T log T). A static sliding window would be O(T),
-but the tree also supports updates such as demand surges.
-
-## Randomized Quickselect (CO5)
-
-**Q. Why randomized?** A random pivot makes the expected time O(n) for every input order; no adversarial ordering forces the
-O(n²) worst case.
-
-**Q. Why three-way partitioning?** Impact data has many repeated values; grouping "= pivot" elements keeps that linear.
-
-**Q. Is it reproducible?** Yes: the pivot generator is seeded. The answer never depends on the seed, only the work does.
-
-**Q. Percentile definition?** Nearest rank: the value at position ceil(p/100 · n) in sorted order. Each result is checked
-against a full sort.
-
-## Metric TSP
-
-**Q. Why is the tour at most 2·OPT?** The MST weighs at most OPT (an optimal tour minus one edge is a spanning tree).
-Walking the tree costs 2·MST; skipping repeated vertices never adds length because of the triangle inequality.
-
-**Q. Why validate the matrix?** Without symmetry and the triangle inequality the guarantee is false, so non-metric input is
-rejected.
-
-**Q. Where do distances come from?** Shortest paths over road length in km, never road capacity.
-
-**Q. Is the tour optimal?** No, and we never say it is. We show the MST lower bound and, for ≤ 10 stops, the exact optimum.
-
-## Engineering
-
-**Q. Why is the API stateless?** Every request carries the dataset, so many users can share one deployment without
-interfering, and there is no database to lose on free hosting.
-
-**Q. How is bad input handled?** Strict validation with field-level messages; unknown JSON fields and wrong types are
-rejected; bodies over 2 MiB get HTTP 413; internal errors never reveal stack traces.
-
-**Q. What did *you* implement?** _Each student answers from their own contribution (see the report, section 10)._
+**What did you implement?** _Each student answers from their own contribution (report section 10)._

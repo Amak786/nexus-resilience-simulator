@@ -1,71 +1,53 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api, ApiError } from './api';
-import type { CityDataset, FlowResponse } from './types';
+import type { Area, NetworkResponse, ProvenanceResponse, Segment } from './types';
+
+/** Named analysis areas inside the study area (bounding boxes in degrees). */
+export const PRESET_AREAS: { id: string; label: string; area: Area }[] = [
+  { id: 'dadar', label: 'Dadar - Mahim - Bandra', area: { south: 19.01, west: 72.83, north: 19.06, east: 72.87 } },
+  { id: 'kurla', label: 'Kurla - Ghatkopar - Chembur', area: { south: 19.05, west: 72.87, north: 19.1, east: 72.92 } },
+  { id: 'andheri', label: 'Andheri - Jogeshwari', area: { south: 19.1, west: 72.83, north: 19.15, east: 72.88 } },
+  { id: 'fort', label: 'Colaba - Fort - Byculla', area: { south: 18.9, west: 72.81, north: 18.98, east: 72.85 } },
+  { id: 'borivali', label: 'Malad - Kandivali - Borivali', area: { south: 19.18, west: 72.83, north: 19.25, east: 72.87 } },
+];
 
 interface AppState {
-  dataset: CityDataset | null;
+  provenance: ProvenanceResponse | null;
+  network: NetworkResponse | null;
+  segmentById: Map<number, Segment>;
   loading: boolean;
-  loadError: string | null;
-  setDataset: (d: CityDataset) => void;
-  resetDemo: () => Promise<void>;
-  lastFlow: FlowResponse | null;
-  setLastFlow: (f: FlowResponse | null) => void;
+  error: string | null;
+  reload: () => Promise<void>;
 }
 
 const Ctx = createContext<AppState | null>(null);
-const KEY = 'nexus.dataset.v1';
 
-/** Holds the current dataset in the browser (the API is stateless) and remembers it per viewer. */
+/** Loads provenance and the full study-area network once; every analysis itself runs on the server. */
 export function AppStateProvider({ children }: { children: ReactNode }) {
-  const [dataset, setDatasetState] = useState<CityDataset | null>(null);
+  const [provenance, setProvenance] = useState<ProvenanceResponse | null>(null);
+  const [network, setNetwork] = useState<NetworkResponse | null>(null);
+  const [segmentById, setSegmentById] = useState<Map<number, Segment>>(new Map());
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [lastFlow, setLastFlow] = useState<FlowResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const setDataset = useCallback((d: CityDataset) => {
-    setDatasetState(d);
-    setLastFlow(null);
-    try {
-      localStorage.setItem(KEY, JSON.stringify(d));
-    } catch {
-      /* storage unavailable: keep in memory only */
-    }
-  }, []);
-
-  const resetDemo = useCallback(async () => {
+  const reload = useCallback(async () => {
     setLoading(true);
-    setLoadError(null);
+    setError(null);
     try {
-      const d = await api.demo();
-      setDataset(d);
+      const [p, n] = await Promise.all([api.provenance(), api.network()]);
+      setProvenance(p);
+      setNetwork(n);
+      setSegmentById(new Map(n.items.map((s) => [s.id, s])));
     } catch (e) {
-      setLoadError(e instanceof ApiError ? e.message : 'Could not load the demo dataset.');
+      setError(e instanceof ApiError ? e.message : 'Could not load the Mumbai network.');
     } finally {
       setLoading(false);
     }
-  }, [setDataset]);
+  }, []);
 
-  useEffect(() => {
-    let saved: CityDataset | null = null;
-    try {
-      const raw = localStorage.getItem(KEY);
-      saved = raw ? (JSON.parse(raw) as CityDataset) : null;
-    } catch {
-      saved = null;
-    }
-    if (saved && Array.isArray(saved.nodes)) {
-      setDatasetState(saved);
-      setLoading(false);
-    } else {
-      void resetDemo();
-    }
-  }, [resetDemo]);
+  useEffect(() => { void reload(); }, [reload]);
 
-  return (
-    <Ctx.Provider value={{ dataset, loading, loadError, setDataset, resetDemo, lastFlow, setLastFlow }}>
-      {children}
-    </Ctx.Provider>
-  );
+  return <Ctx.Provider value={{ provenance, network, segmentById, loading, error, reload }}>{children}</Ctx.Provider>;
 }
 
 export function useAppState(): AppState {

@@ -338,7 +338,9 @@ public class BenchmarkService {
         }
         if (mumbai != null) {
             edu.nexus.algorithms.graph.RoadGraph g = mumbai.network().graph();
-            rows.add(dijkstraRow("Mumbai OSM graph (V=" + g.nodeCount() + ", arcs=" + g.arcCount() + ")", g, 0));
+            // Start at a central intersection (Dadar TT); low node ids can sit in small one-way pockets.
+            int src = mumbai.network().nearestNode(19.018, 72.847, null);
+            rows.add(dijkstraRow("Mumbai OSM graph from Dadar (V=" + g.nodeCount() + ", arcs=" + g.arcCount() + ")", g, src));
         }
         return report("dijkstra", "Dijkstra: Fibonacci heap vs java.util.PriorityQueue (single source, all nodes)",
                 "heap operations (inserts/decrease-keys + extracts)", 2, 5, rows,

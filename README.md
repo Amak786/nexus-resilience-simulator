@@ -1,174 +1,124 @@
-# NEXUS: Infrastructure Failure & Resilience Simulator
+# NEXUS: Mumbai Network Intelligence
 
-> When a bridge fails, who loses relief, and what should be repaired first?
+A student prototype that analyses the **real mapped arterial road network of Greater Mumbai** (OpenStreetMap):
+connectivity, critical links, routes, multi-stop inspection tours and community map-issue records. All assessed
+algorithms are implemented from scratch in Java; the React front end only displays API results.
 
-**Live demo:** https://nexus-resilience.onrender.com · **API docs:** https://nexus-resilience.onrender.com/swagger-ui.html
-(free hosting: the first visit after a quiet period can take 30-60 s while the server wakes up)
+**Live app:** https://nexus-resilience.onrender.com · **API docs:** https://nexus-resilience.onrender.com/swagger-ui.html
+(free hosting: the first request after a quiet period can take 30-60 s while the server wakes up)
 
-NEXUS models a city's relief depots, junctions, demand zones and roads as networks. It **proves** how much aid the network
-can deliver, **stress-tests** it against failures, and **ranks recovery actions** by the delivery capacity they win back.
-Every assessed algorithm is implemented from scratch in Java; the React front end only displays API results.
-
-*Advanced Algorithms · CIA 3 · Semester V · 2026-27. All bundled data is **synthetic**: Varunapuri is a fictional city.
-Results are decision support for an academic project, not official instructions.*
+*Advanced Algorithms · CIA 3 · Semester V · 2026-27. Not an official, production or government system; it shows no live traffic.*
 
 ---
 
-## What it does
+## What is real, what is estimated
 
-| Workflow | Question it answers | Algorithms |
+| Data | Category | Source |
 |---|---|---|
-| **Failure Lab** (flagship) | A road or facility fails: how much throughput is lost, which zones are cut off, which hours are worst, how bad is it compared with random failures, and which repair helps most? | Edmonds-Karp + min cut, DSU, segment tree, randomized Quickselect |
-| Flow Optimizer | What is the maximum deliverable flow, which roads are the bottleneck, and how did the solver get there? (step-by-step replay) | Edmonds-Karp, Ford-Fulkerson, min cut |
-| Infrastructure Resilience | Which parts of the city stay physically connected? Which single roads are critical? | Disjoint-set union |
-| Incident Priority | Which open incident should be handled next as reports change? | Red-black tree |
-| Duplicate Screening | Is this incident report a duplicate? | Bloom filter + exact verification |
-| Delivery Routes | A short tour for one relief vehicle, with a proven quality bound | Metric TSP 2-approximation (MST + preorder) |
-| Algorithm Lab | Run each algorithm on your own small input and inspect the trace | all |
-| Benchmarks & Tests | Live property checks and benchmarks with baselines | all |
+| Roads, intersections, one-way rules, names, lanes/maxspeed tags (12,907 nodes, 18,169 segments, ~2,478 km) | STATIC GEOGRAPHIC | OpenStreetMap via Overpass API, snapshot dated in `backend/src/main/resources/data/mumbai/roads.json` |
+| 2,567 map notes (community-reported map issues, 2013 to the snapshot date) | LATEST AVAILABLE, or VERIFIED LIVE after an in-app import | OpenStreetMap Notes API |
+| Segment travel time = length / speed (OSM `maxspeed`, else class default) | DERIVED ESTIMATE | computed in NEXUS |
+| Segment capacity = lanes per direction x per-lane capacity by class | MODELLED PROXY | computed in NEXUS |
+| Live traffic speeds or incidents | NOT AVAILABLE | no free, documented, terms-verified Mumbai feed was found (Google/TomTom/HERE need paid keys; no official public API) |
+| Varunapuri-style toy graphs in the Algorithm Lab and tests | DEMONSTRATION | hand-made |
 
-## Algorithms (all in `backend/src/main/java/edu/nexus/algorithms`)
+Map notes are **not** traffic incidents. Capacities are **not** measured throughput. The app labels both everywhere they appear.
 
-| Family | Class | Time | Space | Syllabus |
-|---|---|---|---|---|
-| Network flow: Edmonds-Karp (BFS) | `flow/EdmondsKarp` | O(V E²) | O(V+E) | Unit 5 |
-| Network flow: Ford-Fulkerson (DFS) | `flow/FordFulkerson` | O(E·\|f*\|), integer capacities | O(V+E) | Unit 5 |
-| Max-flow / min-cut certificate | `flow/MinCut` | O(V+E) | O(V) | Unit 5 |
-| Disjoint-set union | `dsu/DisjointSetUnion` | O(α(n)) amortized | O(n) | Unit 2 |
-| Red-black tree (+ subtree sizes) | `rbtree/RedBlackTree` | O(log n) | O(n) | Unit 3 |
-| Bloom filter | `bloom/BloomFilter` | O(k) | m bits | Unit 6 (CO5) |
-| Segment tree (lazy range add) | `segtree/SegmentTree` | O(log n) per op | O(n) | Unit 3 |
-| Randomized Quickselect | `select/RandomizedQuickselect` | expected O(n) | O(1) extra | Unit 1/6 (CO5) |
-| Metric TSP 2-approximation | `tsp/MstPreorderTsp` | O(n²) | O(n²) | Unit 5 |
+## Screens and algorithms
 
-Ford-Fulkerson, Edmonds-Karp and min cut are **one technique family** (network flow), not three separate algorithms.
-Supporting (non-assessed) code: Dijkstra (`graph/ShortestPaths`) to build road distances, nearest-neighbour and
-Held-Karp TSP as a baseline and test oracle.
+| Screen | What you do | Algorithms (Java) |
+|---|---|---|
+| Overview | Study area, graph size, data sources, freshness | - |
+| Network Explorer | Click A and B for the shortest (real length) or fastest (estimated) route; click a road to inspect its attributes | Dijkstra with a custom **Fibonacci heap**, compared on every query with `java.util.PriorityQueue` |
+| Critical Links | Pick an area, click source and sink, optionally remove roads; see the bottleneck | **Edmonds-Karp** (BFS) and **Ford-Fulkerson** (DFS) on the same graph, **max-flow / min-cut** certificate |
+| Network Health | Connected components in an area (before/after removals); map-note records, statistics, live import | **DSU**, **red-black tree** (time index), **Bloom filter** + exact id set, **segment tree** (notes per day), **randomized Quickselect** (P50/P90 time to close) |
+| Multi-stop Planner | Click up to 15 stops; get a tour and its executable road route | **Metric-TSP 2-approximation** (MST + preorder) on Dijkstra road distances |
+| Algorithm Lab & Benchmarks | Run each algorithm on your own input; benchmarks at three sizes; live self-check | all of the above |
+
+## Graph model
+
+* **Nodes** are OSM nodes shared by two or more selected ways, or way endpoints. **Segments** are the road pieces between
+  consecutive nodes. Only `motorway` to `tertiary` roads (and links) are included; residential and service roads are not.
+* A two-way segment gives two directed arcs; a one-way segment (`oneway=yes/-1`, roundabouts, motorways) gives one.
+* Each segment keeps **three separate quantities**: length (m, static), travel time (s, derived), capacity (veh/h per direction, proxy).
+* Routes use the directed graph. Components use an undirected view. Flow uses directed arcs with the capacity proxy.
+  The TSP uses a symmetric planning matrix D(i, j) = max(d(i→j), d(j→i)) over directed road distances; it satisfies the
+  triangle inequality and upper-bounds travel in both directions. The executable route expands each leg into its directed shortest path.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  subgraph Browser
-    UI[React + TypeScript SPA<br/>pages, SVG charts, network map]
-    DS[(Current dataset<br/>held in the browser)]
+  OSM[(OpenStreetMap<br/>Overpass + Notes API)] -- data-pipeline/build-mumbai-snapshot.mjs --> SNAP[(roads.json, notes.json<br/>with provenance)]
+  SNAP --> SVC
+  subgraph API["Spring Boot API (Java 21)"]
+    C[Controllers<br/>MumbaiController, ApiController] --> SVC[Services<br/>MumbaiService, EventService,<br/>TourService, LabService, BenchmarkService]
+    SVC --> ALG[Algorithms<br/>edu.nexus.algorithms.*]
   end
-  subgraph "Spring Boot API (Java 21)"
-    C[ApiController<br/>REST + OpenAPI]
-    V[DatasetValidator<br/>strict input checks]
-    S[Services<br/>Flow, FailureLab, Resilience,<br/>IncidentPriority, Screening,<br/>Timeline, Route, Lab, Benchmark]
-    A[Algorithm engine<br/>edu.nexus.algorithms.*]
-  end
-  UI -- "JSON: dataset + parameters" --> C
-  DS --- UI
-  C --> V --> S --> A
-  A -- "results, traces, certificates" --> S --> C -- JSON --> UI
+  UI[React + TypeScript + Leaflet<br/>OSM tiles] -- JSON --> C
+  SVC -. live import, max every 10 min .-> NOTES[OSM Notes API]
 ```
 
-* **Stateless API.** The browser sends the dataset with every request, so many people can use one deployment at once without interfering.
-* **Three separate graphs.** Directed capacity network (flow), undirected connectivity graph (DSU), metric distance matrix (TSP).
-  Road `capacity` (kits per 12 h, per direction) and `lengthKm` (distance) are never mixed.
-* **Single deployable.** The Docker image bundles the built website into the API, so one Render service hosts everything.
+## Run locally
 
-## Quick start (local development)
-
-Prerequisites: **Java 21+**, **Maven 3.9+**, **Node 20+**.
+Prerequisites: Java 21+, Maven 3.9+, Node 20+.
 
 ```bash
-# 1. API on http://localhost:8080 (Swagger UI at /swagger-ui.html)
-cd backend
-mvn spring-boot:run
-
-# 2. Website on http://localhost:5173 (proxies /api to the API)
-cd frontend
-npm install
-npm run dev
+cd backend && mvn spring-boot:run            # API on http://localhost:8080
+cd frontend && npm install && npm run dev    # app on http://localhost:5173 (proxies /api)
 ```
 
-If port 8080 is busy, start the API with `PORT=8090 mvn spring-boot:run` and the website with `API_PROXY=http://localhost:8090 npm run dev`.
+If port 8080 is busy: `PORT=8090 mvn spring-boot:run` and `API_PROXY=http://localhost:8090 npm run dev`.
+Single container: `docker build -t nexus . && docker run -p 8080:8080 nexus`.
 
-Single container: `docker build -t nexus . && docker run -p 8080:8080 nexus`, then open http://localhost:8080.
-
-## Tests
+## Refresh the data
 
 ```bash
-cd backend && mvn verify          # 62 JUnit tests: algorithms, services, HTTP integration
+node data-pipeline/build-mumbai-snapshot.mjs            # fetches Overpass + OSM Notes, rebuilds the snapshot
+node data-pipeline/build-mumbai-snapshot.mjs --offline  # rebuilds from cached raw downloads
+```
+
+The Overpass query, study-area bounding box, class defaults and per-lane capacities are at the top of the script and are
+copied into the snapshot's provenance. The pipeline sends one request to each service with an identifying User-Agent.
+
+## Tests and benchmarks
+
+```bash
+cd backend && mvn verify                                   # 76 JUnit tests
 cd frontend && npm run lint && npm run typecheck && npm run build
 ```
 
-Each core algorithm has at least five documented tests including boundary and invalid-input cases, plus seeded property tests
-against oracles (`TreeMap`, plain arrays, full sort, Held-Karp, naive relabelling). See [docs/test-evidence.md](docs/test-evidence.md).
-The deployed site also has a **live self-check** (Benchmarks & Tests page) that re-runs about 10,000 seeded cases on the server.
+Every assessed algorithm has at least five tests (edge cases, invalid input, seeded property tests against independent
+oracles: `TreeMap`, `PriorityQueue`, Floyd-Warshall, full sort, Held-Karp, plain arrays). Service tests run on the committed
+Mumbai snapshot, so they are deterministic and need no network. Benchmarks (`POST /api/benchmarks/{suite}`, or the Lab page)
+use three input sizes, warm-up, the median of repeated runs, and a baseline; recorded runs are in `docs/benchmark-results.md`.
 
-## Deployment (public HTTPS)
+## Configuration
 
-See [docs/deployment.md](docs/deployment.md). Summary: push this repository to GitHub, then on Render choose
-**New → Blueprint** and select the repository. `render.yaml` builds the Dockerfile (website + API) on the free plan and
-health-checks `/api/health`. Optional: host the front end separately on Vercel (`frontend/vercel.json`) with
-`VITE_API_BASE_URL` set to the Render URL, and add the Vercel origin to `CORS_ALLOWED_ORIGINS`.
-
-Environment variables (no secrets are needed):
-
-| Variable | Where | Purpose |
+| Variable | Default | Purpose |
 |---|---|---|
-| `PORT` | API | set by Render automatically |
-| `CORS_ALLOWED_ORIGINS` | API | comma-separated origins allowed to call the API (only for a separately hosted front end) |
-| `MAX_REQUEST_BYTES` | API | request body limit (default 2 MiB) |
-| `VITE_API_BASE_URL` | front end build | API URL when the front end is hosted separately; empty = same origin |
+| `PORT` | 8080 | set by Render |
+| `CORS_ALLOWED_ORIGINS` | localhost:5173 | only needed if the front end is hosted on another origin |
+| `MAX_REQUEST_BYTES` | 2097152 | request size limit |
+| `MAX_AREA_SEGMENTS` / `MAX_FLOW_SEGMENTS` | 20000 / 6000 | graph-size limits per request |
 
-## API examples
+No secrets are needed. Deployment: see [docs/deployment.md](docs/deployment.md) (Render blueprint in `render.yaml`).
 
-```bash
-API=http://localhost:8080
-curl $API/api/health
-curl $API/api/dataset/demo > city.json
+## Limitations
 
-# Max flow with Ford-Fulkerson comparison and a trace
-curl -X POST $API/api/flow/optimize -H 'Content-Type: application/json' \
-  -d "{\"dataset\": $(cat city.json), \"algorithm\": \"COMPARE\"}"
-
-# Failure Lab: wash out causeway R22
-curl -X POST $API/api/failure-lab/simulate -H 'Content-Type: application/json' \
-  -d "{\"dataset\": $(cat city.json), \"failedRoadIds\": [\"R22\"], \"batchScenarios\": 100, \"seed\": 2026}"
-
-# Algorithm Lab: max flow on your own graph
-curl -X POST $API/api/lab/flow -H 'Content-Type: application/json' \
-  -d '{"nodes":["s","a","b","t"],"edges":[{"from":"s","to":"a","capacity":3},{"from":"a","to":"t","capacity":2},{"from":"s","to":"b","capacity":2},{"from":"b","to":"t","capacity":3}],"source":"s","sink":"t"}'
-```
-
-Full reference: [docs/api.md](docs/api.md) and the live Swagger UI at `/swagger-ui.html`.
-
-## Repository layout
-
-```
-backend/    Spring Boot API: algorithms/, service/, dto/, model/, web/, config/, tests, demo dataset
-frontend/   React + TypeScript + Vite single-page app
-docs/       proposal, technical report, API, deployment, demo script, viva Q&A, pitch, evidence
-Dockerfile  website + API in one image          render.yaml   Render blueprint
-.github/workflows/ci.yml  Java tests, front-end lint/typecheck/build, Docker build
-```
-
-## Assumptions and limitations
-
-* Max flow is single-commodity and single-period. It maximises total delivered units in a 12-hour window; it does not model
-  travel time, vehicle schedules, perishability or fairness. It is not a full multi-depot inventory optimiser.
-* The incident score is a transparent triage rule, not a validated risk model.
-* Hourly capacity in the Failure Lab assumes deliveries are spread evenly across the window.
-* Route planning assumes one vehicle, no capacity or time windows, and that convoys may use any operating road in either direction.
-* The Bloom filter is insertion-only (no deletions), so false negatives cannot occur; false positives are always verified exactly.
-* Benchmarks depend on hardware; the free hosting tier is slow and shared, so compare growth rates and operation counts.
+* No live traffic, travel-time history or measured capacities. Routes are free-flow estimates; flows are on a capacity model.
+* Arterial roads only, so some areas show small "components" that are really connected through residential streets or roads outside the selected box.
+* The min cut is a property of the capacity model; it does not predict real disruption impact.
+* Map notes are community map-maintenance reports with uneven coverage; they are not incident data.
+* The Fibonacci heap has better amortized bounds but was **slower** than `PriorityQueue` in our benchmarks (constant factors).
 
 ## Documents
 
-[Proposal](docs/proposal.md) · [Technical report](docs/technical-report.md) · [API](docs/api.md) ·
-[Deployment](docs/deployment.md) · [Benchmark results](docs/benchmark-results.md) · [Test evidence](docs/test-evidence.md) ·
-[8-minute demo script](docs/demo-script.md) · [Viva questions](docs/viva-questions.md) · [Product pitch](docs/pitch.md)
+[Proposal](docs/proposal.md) · [Technical report](docs/technical-report.md) · [API](docs/api.md) · [Deployment](docs/deployment.md) ·
+[Benchmark results](docs/benchmark-results.md) · [Demo script](docs/demo-script.md) · [Viva questions](docs/viva-questions.md)
 
-## Credits
+## Credits and licence
 
-Algorithms follow standard references: Cormen, Leiserson, Rivest and Stein, *Introduction to Algorithms* (red-black trees,
-max flow, approximation algorithms); Kirsch and Mitzenmacher (2006) for Bloom-filter double hashing; Rosenkrantz, Stearns
-and Lewis (1977) for the MST-based TSP bound. Third-party software: Spring Boot, springdoc-openapi, React, Vite, TypeScript,
-ESLint (see their licences). No third-party library performs any assessed algorithm.
-
-Licensed under the MIT License (see [LICENSE](LICENSE)).
+Map data © OpenStreetMap contributors, ODbL 1.0 (https://www.openstreetmap.org/copyright); base map tiles © OpenStreetMap.
+References: CLRS *Introduction to Algorithms*; Fredman & Tarjan (1987) Fibonacci heaps; Edmonds & Karp (1972);
+Kirsch & Mitzenmacher (2006); Rosenkrantz, Stearns & Lewis (1977). Code licensed MIT (see LICENSE).

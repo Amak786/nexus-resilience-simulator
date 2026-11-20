@@ -1,14 +1,28 @@
 # Benchmark results
 
-Generated from actual runs of `POST /api/benchmarks/{suite}` on the development laptop on 2026-11-20 (raw JSON in `docs/evidence/`). Re-run them live on the Benchmarks & Tests page; numbers on the free hosting tier will be slower.
+Generated from recorded runs of `POST /api/benchmarks/{suite}` on the development laptop (raw JSON in `docs/evidence/`). Re-run them on the Algorithm Lab & Benchmarks page; free-tier hosting is slower. Compare growth rates and operation counts, not absolute milliseconds.
 
-**Environment:** Java 25.0.2 (Oracle Corporation), 14 logical CPUs, max heap 3952 MiB, Windows 11
+## Dijkstra: Fibonacci heap vs java.util.PriorityQueue (single source, all nodes)
+
+_Java 25.0.2 (Oracle Corporation), 14 logical CPUs, max heap 3952 MiB, Windows 11_. Ops: heap operations (inserts/decrease-keys + extracts). 2 warm-up run(s), median/min of 5 runs.
+
+| Input | Algorithm | Median ms | Min ms | Ops | Baseline | Baseline median ms | Baseline ops | Check |
+|---|---|---:|---:|---:|---|---:|---:|---|
+| grid 100x100 (V=10000, arcs=39600) | Dijkstra + Fibonacci heap | 13.288 | 12.616 | 23,159 | Dijkstra + PriorityQueue (lazy deletion) | 6.844 | 26,298 | identical distances to every node |
+| grid 300x300 (V=90000, arcs=358800) | Dijkstra + Fibonacci heap | 113.787 | 100.283 | 208,377 | Dijkstra + PriorityQueue (lazy deletion) | 48.672 | 236,816 | identical distances to every node |
+| grid 600x600 (V=360000, arcs=1437600) | Dijkstra + Fibonacci heap | 718.163 | 654.553 | 834,696 | Dijkstra + PriorityQueue (lazy deletion) | 291.81 | 949,380 | identical distances to every node |
+| Mumbai OSM graph from Dadar (V=12907, arcs=21964) | Dijkstra + Fibonacci heap | 12.155 | 11.353 | 25,504 | Dijkstra + PriorityQueue (lazy deletion) | 5.426 | 26,114 | identical distances to every node |
+
+- Input: Seeded grid graphs with random edge lengths 1-100 m, plus the real Mumbai road graph (travel-time weights). Generated from fixed seed 2026 before timing.
+- Timing: System.nanoTime() around the algorithm call only; 2 warm-up run(s), then the median and minimum of 5 runs.
+- Operation counts are machine-independent; milliseconds depend on hardware, JIT and load (a shared free-tier server can be noisy).
+- Network latency, JSON serialisation and input generation are excluded.
 
 ## Max flow: Edmonds-Karp vs Ford-Fulkerson (DFS)
 
-Ops column: residual arcs scanned. 1 warm-up run(s), median and minimum of 3 timed runs.
+_Java 25.0.2 (Oracle Corporation), 14 logical CPUs, max heap 3952 MiB, Windows 11_. Ops: residual arcs scanned. 1 warm-up run(s), median/min of 3 runs.
 
-| Input | Algorithm | Median ms | Min ms | Ops | Baseline | Baseline median ms | Baseline ops | Quality / check |
+| Input | Algorithm | Median ms | Min ms | Ops | Baseline | Baseline median ms | Baseline ops | Check |
 |---|---|---:|---:|---:|---|---:|---:|---|
 | V=100, E=497 | Edmonds-Karp | 1.492 | 1.481 | 70,044 | Ford-Fulkerson (DFS) | 4.203 | 26,459 | max flow 815 (both agree) |
 | V=400, E=2057 | Edmonds-Karp | 15.817 | 8.484 | 1,258,678 | Ford-Fulkerson (DFS) | 11.322 | 421,608 | max flow 3802 (both agree) |
@@ -21,9 +35,9 @@ Ops column: residual arcs scanned. 1 warm-up run(s), median and minimum of 3 tim
 
 ## Disjoint-set union vs naive linking
 
-Ops column: parent-pointer hops. 2 warm-up run(s), median and minimum of 5 timed runs.
+_Java 25.0.2 (Oracle Corporation), 14 logical CPUs, max heap 3952 MiB, Windows 11_. Ops: parent-pointer hops. 2 warm-up run(s), median/min of 5 runs.
 
-| Input | Algorithm | Median ms | Min ms | Ops | Baseline | Baseline median ms | Baseline ops | Quality / check |
+| Input | Algorithm | Median ms | Min ms | Ops | Baseline | Baseline median ms | Baseline ops | Check |
 |---|---|---:|---:|---:|---|---:|---:|---|
 | n=10000, 20000 ops | DSU (rank + compression) | 1.443 | 1.232 | 32,742 | Naive linking (no rank, no compression), 1 run | 53.346 | 12,761,123 | naive does 389.7x more pointer hops |
 | n=100000, 200000 ops | DSU (rank + compression) | 8.523 | 7.303 | 327,447 | Naive linking (no rank, no compression), 1 run | - | - | naive baseline stopped after 200000000 pointer hops (1991.976 ms): far slower |
@@ -36,9 +50,9 @@ Ops column: parent-pointer hops. 2 warm-up run(s), median and minimum of 5 timed
 
 ## Red-black tree vs sorted array list (n inserts + n lookups)
 
-Ops column: primary: rotations; baseline: elements shifted. 2 warm-up run(s), median and minimum of 5 timed runs.
+_Java 25.0.2 (Oracle Corporation), 14 logical CPUs, max heap 3952 MiB, Windows 11_. Ops: primary: rotations; baseline: elements shifted. 2 warm-up run(s), median/min of 5 runs.
 
-| Input | Algorithm | Median ms | Min ms | Ops | Baseline | Baseline median ms | Baseline ops | Quality / check |
+| Input | Algorithm | Median ms | Min ms | Ops | Baseline | Baseline median ms | Baseline ops | Check |
 |---|---|---:|---:|---:|---|---:|---:|---|
 | n=1000 | Red-black tree | 1.802 | 1.157 | 559 | Sorted ArrayList (binary search + shift) | 1.292 | 254,609 | height 12 (bound 19.9) |
 | n=10000 | Red-black tree | 9.672 | 8.767 | 5,844 | Sorted ArrayList (binary search + shift) | 10.985 | 25,261,195 | height 16 (bound 26.6) |
@@ -51,9 +65,9 @@ Ops column: primary: rotations; baseline: elements shifted. 2 warm-up run(s), me
 
 ## Bloom filter vs exact HashSet (n inserts + n absent lookups)
 
-Ops column: bits in the filter. 2 warm-up run(s), median and minimum of 5 timed runs.
+_Java 25.0.2 (Oracle Corporation), 14 logical CPUs, max heap 3952 MiB, Windows 11_. Ops: bits in the filter. 2 warm-up run(s), median/min of 5 runs.
 
-| Input | Algorithm | Median ms | Min ms | Ops | Baseline | Baseline median ms | Baseline ops | Quality / check |
+| Input | Algorithm | Median ms | Min ms | Ops | Baseline | Baseline median ms | Baseline ops | Check |
 |---|---|---:|---:|---:|---|---:|---:|---|
 | n=10000 | Bloom filter (p=1%) | 3.062 | 2.585 | 95,851 | HashSet<String> (exact) | 1.609 | - | measured FPR 0.0107 vs theory 0.0100; 9.6 bits/item |
 | n=50000 | Bloom filter (p=1%) | 15.226 | 14.873 | 479,253 | HashSet<String> (exact) | 7.742 | - | measured FPR 0.0103 vs theory 0.0100; 9.6 bits/item |
@@ -66,9 +80,9 @@ Ops column: bits in the filter. 2 warm-up run(s), median and minimum of 5 timed 
 
 ## Segment tree vs plain array (alternating range add / range sum)
 
-Ops column: primary: tree nodes visited; baseline: array cells touched. 2 warm-up run(s), median and minimum of 5 timed runs.
+_Java 25.0.2 (Oracle Corporation), 14 logical CPUs, max heap 3952 MiB, Windows 11_. Ops: primary: tree nodes visited; baseline: array cells touched. 2 warm-up run(s), median/min of 5 runs.
 
-| Input | Algorithm | Median ms | Min ms | Ops | Baseline | Baseline median ms | Baseline ops | Quality / check |
+| Input | Algorithm | Median ms | Min ms | Ops | Baseline | Baseline median ms | Baseline ops | Check |
 |---|---|---:|---:|---:|---|---:|---:|---|
 | n=1000, 2000 ops | Segment tree (lazy) | 1.965 | 1.642 | 63,256 | Plain array | 3.042 | 516,811 | answers agree |
 | n=10000, 2000 ops | Segment tree (lazy) | 2.772 | 2.462 | 90,770 | Plain array | 7.113 | 5,053,326 | answers agree |
@@ -81,9 +95,9 @@ Ops column: primary: tree nodes visited; baseline: array cells touched. 2 warm-u
 
 ## Randomized Quickselect vs full sort (90th percentile)
 
-Ops column: primary: comparisons counted; baseline: n log2 n estimate (not counted). 2 warm-up run(s), median and minimum of 5 timed runs.
+_Java 25.0.2 (Oracle Corporation), 14 logical CPUs, max heap 3952 MiB, Windows 11_. Ops: primary: comparisons counted; baseline: n log2 n estimate (not counted). 2 warm-up run(s), median/min of 5 runs.
 
-| Input | Algorithm | Median ms | Min ms | Ops | Baseline | Baseline median ms | Baseline ops | Quality / check |
+| Input | Algorithm | Median ms | Min ms | Ops | Baseline | Baseline median ms | Baseline ops | Check |
 |---|---|---:|---:|---:|---|---:|---:|---|
 | n=10000 | Randomized Quickselect (P90) | 0.421 | 0.298 | 20,284 | Full sort (Arrays.sort) then index | 2.092 | 132,877 | same P90 value |
 | n=100000 | Randomized Quickselect (P90) | 2.785 | 1.729 | 229,719 | Full sort (Arrays.sort) then index | 12.65 | 1,660,964 | same P90 value |
@@ -96,9 +110,9 @@ Ops column: primary: comparisons counted; baseline: n log2 n estimate (not count
 
 ## Metric TSP: MST double-tree vs nearest neighbour
 
-Ops column: distance lookups (n^2). 2 warm-up run(s), median and minimum of 5 timed runs.
+_Java 25.0.2 (Oracle Corporation), 14 logical CPUs, max heap 3952 MiB, Windows 11_. Ops: distance lookups (n^2). 2 warm-up run(s), median/min of 5 runs.
 
-| Input | Algorithm | Median ms | Min ms | Ops | Baseline | Baseline median ms | Baseline ops | Quality / check |
+| Input | Algorithm | Median ms | Min ms | Ops | Baseline | Baseline median ms | Baseline ops | Check |
 |---|---|---:|---:|---:|---|---:|---:|---|
 | n=50 | MST + preorder (2-approx) | 0.232 | 0.23 | 2,500 | Nearest neighbour | 0.123 | 2,500 | tour/MST: approx 1.623, NN 1.578 (MST <= OPT, so these bound the ratio to OPT) |
 | n=200 | MST + preorder (2-approx) | 0.632 | 0.487 | 40,000 | Nearest neighbour | 0.363 | 40,000 | tour/MST: approx 1.604, NN 1.448 (MST <= OPT, so these bound the ratio to OPT) |
@@ -109,14 +123,7 @@ Ops column: distance lookups (n^2). 2 warm-up run(s), median and minimum of 5 ti
 - Operation counts are machine-independent; milliseconds depend on hardware, JIT and load (a shared free-tier server can be noisy).
 - Network latency, JSON serialisation and input generation are excluded.
 
-## Live self-check (seed 20261119)
+## Interpretation
 
-| Algorithm | Property | Cases | Result | ms |
-|---|---|---:|---|---:|
-| Edmonds-Karp / Ford-Fulkerson / min cut | both reach the same value, the flow is valid, and the residual cut capacity equals it | 150 | pass | 6.42 |
-| Red-black tree | matches java.util.TreeMap after random inserts/deletes; all invariants hold | 3000 | pass | 14.33 |
-| Disjoint-set union | connectivity matches a naive relabelling oracle | 500 | pass | 2.3 |
-| Bloom filter | no false negatives; measured FPR within 0.5x-2x of theory | 5000 | pass | 17.28 |
-| Segment tree | range sum/max/add match a plain array | 2000 | pass | 5.19 |
-| Randomized Quickselect | every percentile equals the value from a full sort | 200 | pass | 16.27 |
-| Metric TSP | MST <= OPT <= approx tour <= 2 x OPT (Held-Karp oracle) | 60 | pass | 6.76 |
+- Fibonacci heap vs PriorityQueue: identical distances everywhere; about 2x slower in wall-clock time despite better amortized bounds (constant factors, cache locality).
+- Edmonds-Karp vs Ford-Fulkerson: always the same max-flow value; DFS was often faster on random graphs, while EK has the capacity-independent O(VE^2) worst case.

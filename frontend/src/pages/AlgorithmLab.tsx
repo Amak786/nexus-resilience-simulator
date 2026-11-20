@@ -1,18 +1,23 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useRequest } from '../lib/state';
-import type { AlgorithmInfo, NodeView, RouteResponse, RunStats, TraceStep } from '../lib/types';
+import type { AlgorithmInfo, MatrixRouteResponse, NodeView, RunStats, TraceStep } from '../lib/types';
+import { BenchmarksPanel, FibHeapLab, SelfCheckPanel } from './LabExtras';
 import { TreeView } from '../components/TreeView';
 import { Badge, Button, Card, Complexity, ErrorBox, Field, List, PageHeader, fmt } from '../components/ui';
 
-type Tab = 'flow' | 'dsu' | 'rbtree' | 'segtree' | 'quickselect' | 'tsp';
+type Tab = 'catalog' | 'flow' | 'fibheap' | 'dsu' | 'rbtree' | 'segtree' | 'quickselect' | 'tsp' | 'bench' | 'check';
 const TABS: { id: Tab; label: string; algo: string }[] = [
+  { id: 'catalog', label: 'All algorithms', algo: '' },
   { id: 'flow', label: 'Max flow', algo: 'edmonds-karp' },
+  { id: 'fibheap', label: 'Fibonacci heap', algo: 'dijkstra-fibheap' },
   { id: 'dsu', label: 'DSU', algo: 'dsu' },
   { id: 'rbtree', label: 'Red-black tree', algo: 'red-black-tree' },
   { id: 'segtree', label: 'Segment tree', algo: 'segment-tree' },
   { id: 'quickselect', label: 'Quickselect', algo: 'quickselect' },
   { id: 'tsp', label: 'Metric TSP', algo: 'metric-tsp' },
+  { id: 'bench', label: 'Benchmarks', algo: '' },
+  { id: 'check', label: 'Self-check & tests', algo: '' },
 ];
 
 const lines = (s: string) => s.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
@@ -25,14 +30,14 @@ function num(token: string | undefined, what: string): number {
 }
 
 export function AlgorithmLab() {
-  const [tab, setTab] = useState<Tab>('flow');
+  const [tab, setTab] = useState<Tab>('catalog');
   const [catalog, setCatalog] = useState<AlgorithmInfo[]>([]);
   useEffect(() => { api.algorithms().then(setCatalog).catch(() => setCatalog([])); }, []);
   const info = catalog.find((c) => c.id === TABS.find((t) => t.id === tab)?.algo);
   return (
     <>
-      <PageHeader kicker="Algorithm Lab" title="Run each Java implementation on your own small input">
-        Inputs are parsed into JSON here, but every result, trace and check below comes from the Java backend.
+      <PageHeader kicker="Algorithm Lab & Benchmarks" title="How each algorithm works, on your own input">
+        Every result, trace and check below comes from the Java backend; the browser only formats input and draws output.
       </PageHeader>
       <div className="tabs" role="tablist">
         {TABS.map((t) => <button key={t.id} role="tab" aria-selected={tab === t.id} className={`tab ${tab === t.id ? 'on' : ''}`} onClick={() => setTab(t.id)}>{t.label}</button>)}
@@ -44,7 +49,11 @@ export function AlgorithmLab() {
           <p className="small"><b>Limitations:</b> {info.limitations}</p>
         </Card>
       )}
+      {tab === 'catalog' && <Catalog items={catalog} />}
       {tab === 'flow' && <FlowLab />}
+      {tab === 'fibheap' && <FibHeapLab />}
+      {tab === 'bench' && <BenchmarksPanel />}
+      {tab === 'check' && <SelfCheckPanel />}
       {tab === 'dsu' && <DsuLab />}
       {tab === 'rbtree' && <RbLab />}
       {tab === 'segtree' && <SegLab />}
@@ -174,7 +183,7 @@ function RbLab() {
   );
 }
 
-interface SegResult { initialSeries: number[]; finalSeries: number[]; results: { index: number; type: string; from: number; to: number; value: number | null; result: number | null; argmaxHour: number | null; nodesVisited: number; matchesNaiveBaseline: boolean }[]; complexity: string }
+interface SegResult { initialSeries: number[]; finalSeries: number[]; results: { index: number; type: string; from: number; to: number; value: number | null; result: number | null; argIndex: number | null; nodesVisited: number; matchesNaiveBaseline: boolean }[]; complexity: string }
 
 function SegLab() {
   const [series, setSeries] = useState('120, 135, 150, 210, 260, 240, 190, 170, 160, 155, 140, 130');
@@ -191,7 +200,7 @@ function SegLab() {
         if (t === 'SET') return { type: t, from: num(a, `line ${i + 1}`), value: num(b, `line ${i + 1}`) };
         return { type: t, from: num(a, `line ${i + 1}`), to: num(b, `line ${i + 1}`), value: c === undefined ? null : num(c, `line ${i + 1}`) };
       });
-      void req.run(() => api.timeline<SegResult>({ series: values, operations }));
+      void req.run(() => api.lab<SegResult>('segment-tree', { series: values, operations }));
     } catch (e) { setLocalErr((e as Error).message); }
   };
   const r = req.data;
@@ -199,7 +208,7 @@ function SegLab() {
     <div className="grid-2">
       <Card title="Series and operations">
         <Field label="Series (e.g. hourly demand)"><textarea rows={2} value={series} onChange={(e) => setSeries(e.target.value)} /></Field>
-        <Field label="SUM l r · MAX l r · ADD l r v · SET i v" hint="0-based, inclusive ranges"><textarea rows={7} value={text} onChange={(e) => setText(e.target.value)} /></Field>
+        <Field label="SUM l r · MIN l r · MAX l r · ADD l r v · SET i v" hint="0-based, inclusive ranges"><textarea rows={7} value={text} onChange={(e) => setText(e.target.value)} /></Field>
         <Button busy={req.busy} onClick={run}>Run segment tree</Button>
         {localErr && <div className="alert error">{localErr}</div>}
         <ErrorBox error={req.error} />
@@ -208,7 +217,7 @@ function SegLab() {
         <Card title="Results (each checked against a plain array)">
           <table className="table small"><thead><tr><th>Op</th><th>Answer</th><th className="num">Nodes visited</th><th>Naive check</th></tr></thead>
             <tbody>{r.results.map((x) => <tr key={x.index}><td>{x.type} [{x.from}, {x.to}]{x.value !== null ? ` ${x.type === 'ADD' ? '+' : '='}${x.value}` : ''}</td>
-              <td>{x.result !== null ? fmt(x.result) : 'updated'}{x.argmaxHour !== null ? ` at index ${x.argmaxHour}` : ''}</td><td className="num">{x.nodesVisited}</td>
+              <td>{x.result !== null ? fmt(x.result) : 'updated'}{x.argIndex !== null ? ` at index ${x.argIndex}` : ''}</td><td className="num">{x.nodesVisited}</td>
               <td>{x.matchesNaiveBaseline ? <Badge tone="good">match</Badge> : <Badge tone="bad">differs</Badge>}</td></tr>)}</tbody></table>
           <p className="small">Final series: {r.finalSeries.join(', ')}</p>
           <p className="muted small">{r.complexity}</p>
@@ -260,13 +269,13 @@ function TspLab() {
   const [labels, setLabels] = useState('Depot, A, B, C, D');
   const [matrix, setMatrix] = useState('0 4 6 5 7\n4 0 3 6 8\n6 3 0 4 5\n5 6 4 0 3\n7 8 5 3 0');
   const [localErr, setLocalErr] = useState<string | null>(null);
-  const req = useRequest<RouteResponse>();
+  const req = useRequest<MatrixRouteResponse>();
   const run = () => {
     setLocalErr(null);
     try {
       const m = lines(matrix).map((l, i) => l.split(/[\s,]+/).map((x, j) => num(x, `row ${i + 1} col ${j + 1}`)));
       const lb = labels.split(',').map((s) => s.trim()).filter(Boolean);
-      void req.run(() => api.lab<RouteResponse>('tsp', { labels: lb, matrix: m, start: 0 }));
+      void req.run(() => api.lab<MatrixRouteResponse>('tsp', { labels: lb, matrix: m, start: 0 }));
     } catch (e) { setLocalErr((e as Error).message); }
   };
   const r = req.data;
@@ -293,5 +302,15 @@ function TspLab() {
         </Card>
       )}
     </div>
+  );
+}
+
+function Catalog({ items }: { items: AlgorithmInfo[] }) {
+  return (
+    <Card title="Algorithms, where they are used, complexity and limitations (served by the API)">
+      <div className="table-scroll"><table className="table small"><thead><tr><th>Algorithm</th><th>Workflow</th><th>Time</th><th>Space</th><th>Limitations</th></tr></thead>
+        <tbody>{items.map((a) => <tr key={a.id}><td><b>{a.name}</b><div className="muted">{a.syllabusUnit} · {a.javaClass}</div></td><td>{a.usedIn}</td><td>{a.time}</td><td>{a.space}</td><td>{a.limitations}</td></tr>)}</tbody></table></div>
+      <p className="small">Ford-Fulkerson, Edmonds-Karp and min cut are one technique family (network flow), compared on the same graph.</p>
+    </Card>
   );
 }
