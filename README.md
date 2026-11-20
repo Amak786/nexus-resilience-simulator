@@ -2,6 +2,9 @@
 
 > When a bridge fails, who loses relief, and what should be repaired first?
 
+**Live demo:** https://nexus-resilience.onrender.com · **API docs:** https://nexus-resilience.onrender.com/swagger-ui.html
+(free hosting: the first visit after a quiet period can take 30-60 s while the server wakes up)
+
 NEXUS models a city's relief depots, junctions, demand zones and roads as networks. It **proves** how much aid the network
 can deliver, **stress-tests** it against failures, and **ranks recovery actions** by the delivery capacity they win back.
 Every assessed algorithm is implemented from scratch in Java; the React front end only displays API results.
