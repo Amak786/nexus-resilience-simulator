@@ -209,6 +209,64 @@ public final class RedBlackTree<K extends Comparable<K>, V> {
         }
     }
 
+    /**
+     * Visits entries with {@code lo <= key <= hi} in ascending order, stopping after {@code limit}
+     * entries. O(log n + k) for k visited entries: subtrees entirely outside the range are skipped.
+     *
+     * @return number of entries visited
+     */
+    public int forEachInRange(K lo, K hi, int limit, BiConsumer<K, V> visitor) {
+        Objects.requireNonNull(lo, "lo");
+        Objects.requireNonNull(hi, "hi");
+        if (lo.compareTo(hi) > 0 || limit <= 0) {
+            return 0;
+        }
+        int[] count = {0};
+        rangeVisit(root, lo, hi, limit, visitor, count);
+        return count[0];
+    }
+
+    /** Number of keys in [lo, hi], using subtree sizes: O(log n). */
+    public int countInRange(K lo, K hi) {
+        if (lo.compareTo(hi) > 0) {
+            return 0;
+        }
+        return countLess(hi, true) - countLess(lo, false);
+    }
+
+    private int countLess(K bound, boolean inclusive) {
+        int c = 0;
+        Node x = root;
+        while (x != nil) {
+            int cmp = x.key.compareTo(bound);
+            if (cmp < 0 || (cmp == 0 && inclusive)) {
+                c += x.left.size + 1;
+                x = x.right;
+            } else {
+                x = x.left;
+            }
+        }
+        return c;
+    }
+
+    private void rangeVisit(Node x, K lo, K hi, int limit, BiConsumer<K, V> visitor, int[] count) {
+        if (x == nil || count[0] >= limit) {
+            return;
+        }
+        boolean goLeft = x.key.compareTo(lo) > 0;
+        boolean goRight = x.key.compareTo(hi) < 0;
+        if (goLeft) {
+            rangeVisit(x.left, lo, hi, limit, visitor, count);
+        }
+        if (count[0] < limit && x.key.compareTo(lo) >= 0 && x.key.compareTo(hi) <= 0) {
+            visitor.accept(x.key, x.value);
+            count[0]++;
+        }
+        if (goRight) {
+            rangeVisit(x.right, lo, hi, limit, visitor, count);
+        }
+    }
+
     public List<K> keysInOrder() {
         List<K> keys = new ArrayList<>(size());
         forEachInOrder((k, v) -> keys.add(k));

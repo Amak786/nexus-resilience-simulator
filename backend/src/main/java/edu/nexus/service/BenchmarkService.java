@@ -36,7 +36,7 @@ import java.util.function.LongSupplier;
 public class BenchmarkService {
 
     public static final List<String> ALGORITHMS =
-            List.of("flow", "dsu", "rbtree", "bloom", "segtree", "quickselect", "tsp");
+            List.of("dijkstra", "flow", "dsu", "rbtree", "bloom", "segtree", "quickselect", "tsp");
     private static final long SEED = 2026L;
     private static final long NAIVE_HOP_BUDGET = 200_000_000L;
 
@@ -48,6 +48,12 @@ public class BenchmarkService {
 
     private record Measure(double medianMs, double minMs, long ops) {}
 
+    private final edu.nexus.mumbai.MumbaiService mumbai;
+
+    public BenchmarkService(org.springframework.beans.factory.ObjectProvider<edu.nexus.mumbai.MumbaiService> mumbai) {
+        this.mumbai = mumbai.getIfAvailable();
+    }
+
     public Report run(String algorithm) {
         return switch (algorithm == null ? "" : algorithm) {
             case "flow" -> flow();
@@ -57,6 +63,7 @@ public class BenchmarkService {
             case "segtree" -> segtree();
             case "quickselect" -> quickselect();
             case "tsp" -> tsp();
+            case "dijkstra" -> dijkstra();
             default -> throw new ValidationException("algorithm", "must be one of " + ALGORITHMS);
         };
     }
@@ -321,6 +328,79 @@ public class BenchmarkService {
         }
         return report("tsp", "Metric TSP: MST double-tree vs nearest neighbour", "distance lookups (n^2)", 2, 5, rows,
                 "Uniform random points in a 100 x 100 km square (Euclidean, so metric by construction).");
+    }
+
+    private Report dijkstra() {
+        List<Row> rows = new ArrayList<>();
+        for (int side : new int[] {100, 300, 600}) {
+            edu.nexus.algorithms.graph.RoadGraph g = grid(side, new SplittableRandom(SEED + side));
+            rows.add(dijkstraRow("grid " + side + "x" + side + " (V=" + g.nodeCount() + ", arcs=" + g.arcCount() + ")", g, 0));
+        }
+        if (mumbai != null) {
+            edu.nexus.algorithms.graph.RoadGraph g = mumbai.network().graph();
+            rows.add(dijkstraRow("Mumbai OSM graph (V=" + g.nodeCount() + ", arcs=" + g.arcCount() + ")", g, 0));
+        }
+        return report("dijkstra", "Dijkstra: Fibonacci heap vs java.util.PriorityQueue (single source, all nodes)",
+                "heap operations (inserts/decrease-keys + extracts)", 2, 5, rows,
+                "Seeded grid graphs with random edge lengths 1-100 m, plus the real Mumbai road graph (travel-time weights).");
+    }
+
+    private Row dijkstraRow(String label, edu.nexus.algorithms.graph.RoadGraph g, int source) {
+        double[] check = new double[2];
+        Measure fib = measure(2, 5, () -> {
+            edu.nexus.algorithms.graph.Dijkstra.Result r = edu.nexus.algorithms.graph.Dijkstra.run(g, source, -1,
+                    edu.nexus.algorithms.graph.RoadGraph.Metric.TIME, edu.nexus.algorithms.graph.Dijkstra.Queue.FIBONACCI);
+            check[0] = sumFinite(r.dist());
+            return r.heapOperations();
+        });
+        Measure bin = measure(2, 5, () -> {
+            edu.nexus.algorithms.graph.Dijkstra.Result r = edu.nexus.algorithms.graph.Dijkstra.run(g, source, -1,
+                    edu.nexus.algorithms.graph.RoadGraph.Metric.TIME, edu.nexus.algorithms.graph.Dijkstra.Queue.BINARY);
+            check[1] = sumFinite(r.dist());
+            return r.heapOperations();
+        });
+        boolean same = Math.abs(check[0] - check[1]) <= 1e-6 * Math.max(1, check[0]);
+        return new Row(label, "Dijkstra + Fibonacci heap", fib.medianMs(), fib.minMs(), fib.ops(),
+                "Dijkstra + PriorityQueue (lazy deletion)", bin.medianMs(), bin.ops(),
+                same ? "identical distances to every node" : "DISTANCES DIFFER");
+    }
+
+    private static double sumFinite(double[] d) {
+        double s = 0;
+        for (double v : d) {
+            if (Double.isFinite(v)) {
+                s += v;
+            }
+        }
+        return s;
+    }
+
+    /** side x side 4-neighbour grid, two-way segments, length = time = random 1..100. */
+    private static edu.nexus.algorithms.graph.RoadGraph grid(int side, SplittableRandom rnd) {
+        int n = side * side;
+        int m = 2 * side * (side - 1);
+        int[] u = new int[m];
+        int[] v = new int[m];
+        boolean[] ow = new boolean[m];
+        double[] w = new double[m];
+        double[] cap = new double[m];
+        int e = 0;
+        for (int r = 0; r < side; r++) {
+            for (int c = 0; c < side; c++) {
+                int id = r * side + c;
+                if (c + 1 < side) {
+                    u[e] = id;
+                    v[e] = id + 1;
+                    w[e++] = 1 + rnd.nextInt(100);
+                }
+                if (r + 1 < side) {
+                    u[e] = id;
+                    v[e] = id + side;
+                    w[e++] = 1 + rnd.nextInt(100);
+                }
+            }
+        }
+        return new edu.nexus.algorithms.graph.RoadGraph(n, u, v, ow, w, w, cap);
     }
 
     // ---------------------------------------------------------------- helpers

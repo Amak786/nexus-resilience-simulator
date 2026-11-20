@@ -4,8 +4,8 @@ package edu.nexus.algorithms.segtree;
  * Segment tree over a fixed-length series of long values (e.g. hourly demand or shortfall), with
  * lazy propagation.
  *
- * <p>Each internal node stores, for its index range: the sum, the maximum, and the leftmost index of
- * that maximum. A pending "add delta to the whole range" tag is kept in {@code lazy} and pushed down
+ * <p>Each internal node stores, for its index range: the sum, the maximum and minimum, and the leftmost
+ * index of each. A pending "add delta to the whole range" tag is kept in {@code lazy} and pushed down
  * only when a query or update needs to look inside the range.
  *
  * <pre>
@@ -17,7 +17,7 @@ package edu.nexus.algorithms.segtree;
  *   push; recurse; pull (recompute from children)
  * </pre>
  *
- * <p><b>Complexity.</b> Build O(n). Range sum, range max, range add and point set each touch
+ * <p><b>Complexity.</b> Build O(n). Range sum, range min, range max, range add and point set each touch
  * O(log n) nodes (at most ~4 per level). Space O(n) (arrays of size 4n).
  *
  * <p><b>Baseline.</b> A plain array answers a range query or a range add in O(r - l + 1). The tree
@@ -33,6 +33,8 @@ public final class SegmentTree {
     private final long[] sum;
     private final long[] max;
     private final int[] maxIdx;
+    private final long[] min;
+    private final int[] minIdx;
     private final long[] lazy;
     private long nodesVisited;
 
@@ -44,6 +46,8 @@ public final class SegmentTree {
         sum = new long[4 * n];
         max = new long[4 * n];
         maxIdx = new int[4 * n];
+        min = new long[4 * n];
+        minIdx = new int[4 * n];
         lazy = new long[4 * n];
         build(1, 0, n - 1, values);
     }
@@ -67,6 +71,32 @@ public final class SegmentTree {
         long[] out = {Long.MIN_VALUE, -1};
         maxQuery(1, 0, n - 1, l, r, out);
         return new MaxResult(out[0], (int) out[1]);
+    }
+
+    /** Minimum value in [l, r] and its leftmost position. O(log n). */
+    public MaxResult rangeMin(int l, int r) {
+        checkRange(l, r);
+        long[] out = {Long.MAX_VALUE, -1};
+        minQuery(1, 0, n - 1, l, r, out);
+        return new MaxResult(out[0], (int) out[1]);
+    }
+
+    private void minQuery(int node, int lo, int hi, int l, int r, long[] out) {
+        nodesVisited++;
+        if (r < lo || hi < l) {
+            return;
+        }
+        if (l <= lo && hi <= r) {
+            if (min[node] < out[0]) {
+                out[0] = min[node];
+                out[1] = minIdx[node];
+            }
+            return;
+        }
+        push(node, lo, hi);
+        int mid = (lo + hi) >>> 1;
+        minQuery(2 * node, lo, mid, l, r, out);
+        minQuery(2 * node + 1, mid + 1, hi, l, r, out);
     }
 
     /** Adds {@code delta} to every value in [l, r]. */
@@ -97,6 +127,8 @@ public final class SegmentTree {
             sum[node] = v[lo];
             max[node] = v[lo];
             maxIdx[node] = lo;
+            min[node] = v[lo];
+            minIdx[node] = lo;
             return;
         }
         int mid = (lo + hi) >>> 1;
@@ -116,11 +148,19 @@ public final class SegmentTree {
             max[node] = max[b];
             maxIdx[node] = maxIdx[b];
         }
+        if (min[a] <= min[b]) { // ties prefer the left child, giving the leftmost minimum
+            min[node] = min[a];
+            minIdx[node] = minIdx[a];
+        } else {
+            min[node] = min[b];
+            minIdx[node] = minIdx[b];
+        }
     }
 
     private void apply(int node, int lo, int hi, long delta) {
         sum[node] += delta * (hi - lo + 1);
         max[node] += delta;
+        min[node] += delta;
         lazy[node] += delta;
     }
 

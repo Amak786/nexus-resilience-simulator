@@ -1,8 +1,6 @@
 package edu.nexus.dto;
 
 import edu.nexus.algorithms.rbtree.RedBlackTree.NodeView;
-import edu.nexus.dto.FlowDtos.RunStats;
-import edu.nexus.dto.FlowDtos.TraceStep;
 
 import java.util.List;
 
@@ -10,6 +8,34 @@ import java.util.List;
 public final class LabDtos {
 
     private LabDtos() {}
+
+    public record RunStats(String algorithm, long maxFlow, int augmentations, long arcScans, double elapsedMs) {}
+
+    public record TraceArc(int edge, boolean reverse) {}
+
+    public record TraceStep(int step, List<String> nodes, List<TraceArc> arcs, long bottleneck, long flowAfter,
+                            long[] edgeFlows) {}
+
+    /** Segment tree on a series. Operation type: SUM, MIN, MAX, ADD (value added to [from,to]) or SET (to = from). */
+    public record TimelineOperation(String type, Integer from, Integer to, Long value) {}
+
+    public record TimelineRequest(List<Long> series, List<TimelineOperation> operations) {}
+
+    public record TimelineOpResult(int index, String type, int from, int to, Long value, Long result, Integer argIndex,
+                                   long nodesVisited, boolean matchesNaiveBaseline) {}
+
+    public record TimelineResponse(List<Long> initialSeries, List<Long> finalSeries, List<TimelineOpResult> results,
+                                   String complexity) {}
+
+    /** Fibonacci-heap operation: INSERT key, EXTRACT_MIN, or DECREASE_KEY handle newKey (handle = insert number, 0-based). */
+    public record HeapOperation(String type, Double key, Integer handle) {}
+
+    public record LabHeapRequest(List<HeapOperation> operations) {}
+
+    public record HeapOpResult(int index, String type, String outcome, int size, List<Integer> rootDegrees,
+                               long links, long cuts, long cascadingCuts, boolean invariantsHold) {}
+
+    public record LabHeapResponse(List<HeapOpResult> results, int size, String note) {}
 
     public record LabEdge(String from, String to, Long capacity) {}
 

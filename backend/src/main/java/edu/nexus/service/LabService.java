@@ -9,9 +9,9 @@ import edu.nexus.algorithms.flow.MinCut;
 import edu.nexus.algorithms.flow.TraceOptions;
 import edu.nexus.algorithms.rbtree.RedBlackTree;
 import edu.nexus.algorithms.select.RandomizedQuickselect;
-import edu.nexus.dto.FlowDtos.RunStats;
-import edu.nexus.dto.FlowDtos.TraceArc;
-import edu.nexus.dto.FlowDtos.TraceStep;
+import edu.nexus.dto.LabDtos.RunStats;
+import edu.nexus.dto.LabDtos.TraceArc;
+import edu.nexus.dto.LabDtos.TraceStep;
 import edu.nexus.dto.LabDtos.DsuOpResult;
 import edu.nexus.dto.LabDtos.DsuOperation;
 import edu.nexus.dto.LabDtos.LabDsuRequest;
@@ -41,6 +41,7 @@ import java.util.Map;
 @Service
 public class LabService {
 
+    public static final long MAX_CAPACITY = 1_000_000_000L;
     public static final int MAX_LAB_NODES = 200;
     public static final int MAX_LAB_EDGES = 2000;
     public static final int MAX_DSU_ELEMENTS = 100_000;
@@ -86,12 +87,12 @@ public class LabService {
             if (e == null || !idx.containsKey(e.from()) || !idx.containsKey(e.to())) {
                 throw new ValidationException(f, "endpoints must be listed nodes");
             }
-            if (e.capacity() == null || e.capacity() < 0 || e.capacity() > DatasetValidator.MAX_QUANTITY) {
-                throw new ValidationException(f + ".capacity", "must be an integer between 0 and " + DatasetValidator.MAX_QUANTITY);
+            if (e.capacity() == null || e.capacity() < 0 || e.capacity() > MAX_CAPACITY) {
+                throw new ValidationException(f + ".capacity", "must be an integer between 0 and " + MAX_CAPACITY);
             }
             g.addEdge(idx.get(e.from()), idx.get(e.to()), e.capacity());
         }
-        TraceOptions opts = new TraceOptions(FlowService.MAX_TRACE_STEPS, edges.size() <= FlowService.MAX_SNAPSHOT_EDGES);
+        TraceOptions opts = new TraceOptions(200, edges.size() <= 400);
         List<String> labels = new ArrayList<>(idx.keySet());
         MaxFlowResult ff = FordFulkerson.run(g, s, t, opts);
         long[] ffFlows = g.edgeFlows();
@@ -239,6 +240,69 @@ public class LabService {
                 List.of("Nearest-rank percentile: value at rank ceil(p/100 * n).",
                         "Quickselect expected O(n) comparisons; the sort baseline is O(n log n) (estimate shown as n log2 n).",
                         "Same seed gives the same pivot sequence and comparison count; the selected value never depends on the seed."));
+    }
+
+    /** Runs a sequence of Fibonacci-heap operations and reports the root list and invariant check after each. */
+    public edu.nexus.dto.LabDtos.LabHeapResponse fibonacciHeap(edu.nexus.dto.LabDtos.LabHeapRequest req) {
+        List<edu.nexus.dto.LabDtos.HeapOperation> ops = req == null || req.operations() == null ? List.of() : req.operations();
+        if (ops.size() > MAX_OPS) {
+            throw new ValidationException("operations", "at most " + MAX_OPS + " operations");
+        }
+        edu.nexus.algorithms.heap.FibonacciHeap<Integer> heap = new edu.nexus.algorithms.heap.FibonacciHeap<>();
+        List<edu.nexus.algorithms.heap.FibonacciHeap.Node<Integer>> handles = new ArrayList<>();
+        List<edu.nexus.dto.LabDtos.HeapOpResult> out = new ArrayList<>();
+        for (int i = 0; i < ops.size(); i++) {
+            edu.nexus.dto.LabDtos.HeapOperation op = ops.get(i);
+            String f = "operations[" + i + "]";
+            if (op == null || op.type() == null) {
+                throw new ValidationException(f + ".type", "must be INSERT, EXTRACT_MIN or DECREASE_KEY");
+            }
+            String outcome;
+            switch (op.type()) {
+                case "INSERT" -> {
+                    if (op.key() == null || !Double.isFinite(op.key())) {
+                        throw new ValidationException(f + ".key", "must be a finite number");
+                    }
+                    handles.add(heap.insert(op.key(), handles.size()));
+                    outcome = "inserted key " + op.key() + " as handle " + (handles.size() - 1);
+                }
+                case "EXTRACT_MIN" -> {
+                    if (heap.isEmpty()) {
+                        throw new ValidationException(f, "cannot extract from an empty heap");
+                    }
+                    edu.nexus.algorithms.heap.FibonacciHeap.Node<Integer> m = heap.extractMin();
+                    outcome = "extracted key " + m.key() + " (handle " + m.value() + "), then consolidated the root list";
+                }
+                case "DECREASE_KEY" -> {
+                    if (op.handle() == null || op.handle() < 0 || op.handle() >= handles.size()) {
+                        throw new ValidationException(f + ".handle", "must be the number of an earlier INSERT (0-based)");
+                    }
+                    if (op.key() == null || !Double.isFinite(op.key())) {
+                        throw new ValidationException(f + ".key", "must be a finite number");
+                    }
+                    try {
+                        long cutsBefore = heap.cutCount();
+                        heap.decreaseKey(handles.get(op.handle()), op.key());
+                        long cuts = heap.cutCount() - cutsBefore;
+                        outcome = "handle " + op.handle() + " now has key " + op.key()
+                                + (cuts == 0 ? " (heap order kept, no cut)" : " (" + cuts + " cut(s), incl. cascading)");
+                    } catch (IllegalArgumentException ex) {
+                        throw new ValidationException(f, ex.getMessage());
+                    }
+                }
+                default -> throw new ValidationException(f + ".type", "must be INSERT, EXTRACT_MIN or DECREASE_KEY");
+            }
+            boolean ok = true;
+            try {
+                heap.validate();
+            } catch (IllegalStateException ex) {
+                ok = false;
+            }
+            out.add(new edu.nexus.dto.LabDtos.HeapOpResult(i, op.type(), outcome, heap.size(), heap.rootDegrees(),
+                    heap.linkCount(), heap.cutCount(), heap.cascadingCutCount(), ok));
+        }
+        return new edu.nexus.dto.LabDtos.LabHeapResponse(out, heap.size(),
+                "insert and decrease-key are O(1) amortized; extract-min is O(log n) amortized because it consolidates roots of equal degree.");
     }
 
     private static RunTrace trace(MaxFlowResult r, List<String> labels) {

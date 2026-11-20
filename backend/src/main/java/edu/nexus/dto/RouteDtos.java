@@ -1,16 +1,11 @@
 package edu.nexus.dto;
 
-import edu.nexus.model.CityDataset;
-
 import java.util.List;
 
 /** Types for delivery-route planning (metric TSP 2-approximation). */
 public final class RouteDtos {
 
     private RouteDtos() {}
-
-    public record RouteRequest(CityDataset dataset, String depotId, List<String> stopIds, List<String> failedRoadIds,
-                               List<String> failedNodeIds) {}
 
     public record Leg(String from, String to, double km) {}
 
