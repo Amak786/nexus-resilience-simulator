@@ -31,13 +31,37 @@ public class MumbaiController {
     private final EventService events;
     private final TourService tours;
 
-    public MumbaiController(MumbaiService mumbai, EventService events, TourService tours) {
+    private final SearchService search;
+
+    public MumbaiController(MumbaiService mumbai, EventService events, TourService tours, SearchService search) {
         this.mumbai = mumbai;
         this.events = events;
         this.tours = tours;
+        this.search = search;
     }
 
-    @Operation(summary = "Data sources with category (live / latest / static / derived / proxy / demo / not available), freshness and graph size")
+    @Operation(summary = "One road segment with every attribute, its data class, and which OSM tags are missing")
+    @GetMapping("/segments/{id}")
+    public MumbaiDtos.SegmentDetail segment(@org.springframework.web.bind.annotation.PathVariable int id) {
+        return mumbai.segmentDetail(id);
+    }
+
+    @Operation(summary = "Search road names in the snapshot (instant); with places=true also OSM Nominatim (explicit search only, rate-limited)")
+    @GetMapping("/search")
+    public MumbaiDtos.SearchResponse search(@RequestParam String q, @RequestParam(defaultValue = "false") boolean places) {
+        return search.search(q, places);
+    }
+
+    @Operation(summary = "Percentiles of real segment lengths in an area with randomized Quickselect, checked against sorting")
+    @GetMapping("/stats/lengths")
+    public MumbaiDtos.LengthStatsResponse lengthStats(@RequestParam(required = false) Double south, @RequestParam(required = false) Double west,
+                                                      @RequestParam(required = false) Double north, @RequestParam(required = false) Double east,
+                                                      @RequestParam(required = false) java.util.List<Double> percentiles) {
+        Area a = south == null && west == null && north == null && east == null ? null : new Area(south, west, north, east);
+        return mumbai.lengthStats(a, percentiles);
+    }
+
+    @Operation(summary = "Data sources with data class (A real mapped, B verified observation, C derived, D estimate, E sample, not available), freshness, graph size and coverage")
     @GetMapping("/provenance")
     public ProvenanceResponse provenance() {
         return mumbai.provenance();
@@ -51,19 +75,19 @@ public class MumbaiController {
         return mumbai.network(a);
     }
 
-    @Operation(summary = "Shortest or fastest route; Dijkstra with a Fibonacci heap, compared with java.util.PriorityQueue")
+    @Operation(summary = "Route by real length (DISTANCE, default) or estimated free-flow time; optional closed segments; Dijkstra with a Fibonacci heap vs PriorityQueue")
     @PostMapping("/route")
     public RouteResponse route(@RequestBody RouteRequest request) {
         return mumbai.route(request);
     }
 
-    @Operation(summary = "Connected components in an area before/after removing segments (DSU, rebuilt after removals)")
+    @Operation(summary = "Weak components (DSU) before/after removing segments, plus optional origin/destination directed reachability (BFS)")
     @PostMapping("/components")
     public ComponentsResponse components(@RequestBody ComponentsRequest request) {
         return mumbai.components(request);
     }
 
-    @Operation(summary = "Max flow / min cut between two points in an area on the capacity proxy (Edmonds-Karp vs Ford-Fulkerson)")
+    @Operation(summary = "Max flow / min cut between two points in an area: UNIT (structural, default) or LANE_ASSUMPTION capacities; Edmonds-Karp vs Ford-Fulkerson")
     @PostMapping("/critical-links")
     public CriticalLinksResponse criticalLinks(@RequestBody CriticalLinksRequest request) {
         return mumbai.criticalLinks(request);

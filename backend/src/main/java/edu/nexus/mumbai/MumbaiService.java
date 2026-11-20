@@ -11,8 +11,10 @@ import edu.nexus.algorithms.flow.MinCut;
 import edu.nexus.algorithms.flow.TraceOptions;
 import edu.nexus.algorithms.graph.Dijkstra;
 import edu.nexus.algorithms.graph.RoadGraph;
+import edu.nexus.algorithms.select.RandomizedQuickselect;
 import edu.nexus.model.ValidationException;
 import edu.nexus.mumbai.MumbaiDtos.Area;
+import edu.nexus.mumbai.MumbaiDtos.AttributeCoverage;
 import edu.nexus.mumbai.MumbaiDtos.ClassCount;
 import edu.nexus.mumbai.MumbaiDtos.Component;
 import edu.nexus.mumbai.MumbaiDtos.ComponentSummary;
@@ -21,17 +23,25 @@ import edu.nexus.mumbai.MumbaiDtos.ComponentsResponse;
 import edu.nexus.mumbai.MumbaiDtos.CriticalLinksRequest;
 import edu.nexus.mumbai.MumbaiDtos.CriticalLinksResponse;
 import edu.nexus.mumbai.MumbaiDtos.CutSegment;
+import edu.nexus.mumbai.MumbaiDtos.DataClass;
+import edu.nexus.mumbai.MumbaiDtos.DataItem;
 import edu.nexus.mumbai.MumbaiDtos.DataSource;
+import edu.nexus.mumbai.MumbaiDtos.Explanation;
 import edu.nexus.mumbai.MumbaiDtos.FlowStats;
 import edu.nexus.mumbai.MumbaiDtos.GraphStats;
+import edu.nexus.mumbai.MumbaiDtos.LengthStatsResponse;
+import edu.nexus.mumbai.MumbaiDtos.NetworkInsight;
 import edu.nexus.mumbai.MumbaiDtos.NetworkResponse;
+import edu.nexus.mumbai.MumbaiDtos.PairConnectivity;
 import edu.nexus.mumbai.MumbaiDtos.PathPreview;
+import edu.nexus.mumbai.MumbaiDtos.PercentileValue;
 import edu.nexus.mumbai.MumbaiDtos.ProvenanceResponse;
 import edu.nexus.mumbai.MumbaiDtos.QueueStats;
 import edu.nexus.mumbai.MumbaiDtos.RoadStep;
 import edu.nexus.mumbai.MumbaiDtos.RouteRequest;
 import edu.nexus.mumbai.MumbaiDtos.RouteResponse;
 import edu.nexus.mumbai.MumbaiDtos.Segment;
+import edu.nexus.mumbai.MumbaiDtos.SegmentDetail;
 import edu.nexus.mumbai.MumbaiDtos.Snap;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
@@ -42,24 +52,34 @@ import java.io.InputStream;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
-/** Analyses on the real Mumbai road graph: provenance, map data, routes, components, critical links. */
+/** Analyses on the real Mumbai road graph: provenance, map data, routes, connectivity, critical links. */
 @Service
 public class MumbaiService {
 
+    public static final String PRODUCT = "NEXUS - Mumbai Road Network Intelligence";
     /** Study area of the snapshot (Greater Mumbai). */
     public static final Area STUDY_AREA = new Area(18.89, 72.77, 19.29, 72.99);
+    public static final String LIVE_TRAFFIC_STATUS = "Live traffic unavailable. No free, documented, terms-verified traffic or "
+            + "incident feed for Mumbai is connected. Enabling it would need a licensed provider (for example a TomTom, HERE or "
+            + "Google traffic API key under their terms) or an official open feed; until then routes use real road length or a "
+            + "free-flow speed estimate.";
 
     private final MumbaiNetwork net;
     private final int maxAreaSegments;
     private final int maxFlowSegments;
     private final EventService events;
+    private final AttributeCoverage coverage;
+    private final NetworkInsight insight;
 
     public MumbaiService(ObjectMapper mapper, EventService events,
                          @Value("${nexus.max-area-segments:20000}") int maxAreaSegments,
@@ -70,36 +90,40 @@ public class MumbaiService {
         this.events = events;
         this.maxAreaSegments = maxAreaSegments;
         this.maxFlowSegments = maxFlowSegments;
+        this.coverage = computeCoverage();
+        this.insight = computeInsight();
     }
 
     public MumbaiNetwork network() {
         return net;
     }
 
-    // ---------------------------------------------------------------- provenance
+    // ---------------------------------------------------------------- provenance and whole-network facts
 
     public ProvenanceResponse provenance() {
         JsonNode p = net.provenance();
         RoadGraph g = net.graph();
         List<DataSource> sources = new ArrayList<>();
         String retrieved = text(p, "retrievedAt");
-        sources.add(new DataSource("roads", text(p, "dataset"), "STATIC_GEOGRAPHIC", text(p, "source"), text(p, "sourceUrl"),
-                text(p, "licence"), retrieved, text(p, "osmDataTimestamp"), ageDays(retrieved), freshness(retrieved),
-                p.get("coverage").get("description").asText(), text(p, "notes")));
+        sources.add(new DataSource("roads", text(p, "dataset"), DataClass.REAL_MAPPED, "snapshot", text(p, "source"),
+                text(p, "sourceUrl"), text(p, "licence"), retrieved, text(p, "osmDataTimestamp"), ageDays(retrieved),
+                freshness(retrieved), p.get("coverage").get("description").asText(), text(p, "notes")));
         sources.add(events.dataSource());
-        sources.add(new DataSource("travel-time", "Segment travel-time estimates", "DERIVED_ESTIMATE",
-                "Computed in NEXUS from OSM length and maxspeed tags (or class defaults)", null, null, retrieved, null, null,
-                "derived from the road snapshot", "every road segment",
-                net.assumptions().get("travelTime").asText()));
-        sources.add(new DataSource("capacity", "Segment capacity proxy", "MODELLED_PROXY",
-                "Computed in NEXUS from OSM lanes tags (or class defaults) x per-lane capacity", null, null, retrieved, null,
-                null, "derived from the road snapshot", "every road segment", net.assumptions().get("capacity").asText()));
-        sources.add(new DataSource("live-traffic", "Live traffic speeds and incidents", "NOT_AVAILABLE", null, null, null,
-                null, null, null, "not connected",
-                "Mumbai", "No free, documented, terms-verified live traffic or incident feed for Mumbai was found. Commercial APIs "
-                + "(Google, TomTom, HERE) need paid keys; no official public API exists. NEXUS does not show live conditions."));
-        sources.add(new DataSource("sample", "Varunapuri sample graph", "DEMONSTRATION", "Hand-made test data in this repository",
-                null, "MIT", null, null, null, "static", "fictional", "Used only by offline tests and the Algorithm Lab examples."));
+        sources.add(new DataSource("travel-time", "Segment travel-time estimate", DataClass.ESTIMATE, "derived on load",
+                "NEXUS: length / speed (OSM maxspeed tag, else road-class default)", null, null, retrieved, null, null,
+                "recomputed from the road snapshot", "every road segment",
+                "Only " + coverage.maxspeedTagPresentPct() + "% of segments carry a maxspeed tag; the rest use class defaults. "
+                        + net.assumptions().get("travelTime").asText()));
+        sources.add(new DataSource("capacity", "Lane-based capacity assumption", DataClass.ESTIMATE, "opt-in only",
+                "NEXUS: lanes per direction x per-lane rule of thumb", null, null, retrieved, null, null,
+                "recomputed from the road snapshot", "every road segment",
+                "Only " + coverage.lanesTagPresentPct() + "% of segments carry a lanes tag. Used only when the user selects the "
+                        + "LANE_ASSUMPTION capacity model; never presented as measured throughput."));
+        sources.add(new DataSource("live-traffic", "Live traffic speeds, incidents and closures", DataClass.NOT_AVAILABLE,
+                "unavailable", null, null, null, null, null, null, "not connected", "Mumbai", LIVE_TRAFFIC_STATUS));
+        sources.add(new DataSource("sample", "Algorithm Lab sample inputs", DataClass.SAMPLE, "static",
+                "Hand-made examples in this repository", null, "MIT", null, null, null, "static", "not geographic",
+                "Used only by the Algorithm Lab and unit tests."));
         Map<String, double[]> byClass = new LinkedHashMap<>();
         int oneWay = 0;
         double km = 0;
@@ -114,8 +138,47 @@ public class MumbaiService {
         }
         List<ClassCount> classes = new ArrayList<>();
         byClass.forEach((k, v) -> classes.add(new ClassCount(k, (int) v[0], round1(v[1]))));
-        return new ProvenanceResponse(STUDY_AREA, sources,
-                new GraphStats(g.nodeCount(), g.segmentCount(), g.arcCount(), oneWay, round1(km), classes), net.assumptions());
+        return new ProvenanceResponse(PRODUCT, STUDY_AREA, sources,
+                new GraphStats(g.nodeCount(), g.segmentCount(), g.arcCount(), oneWay, round1(km), classes, coverage, insight),
+                net.assumptions(), LIVE_TRAFFIC_STATUS);
+    }
+
+    private AttributeCoverage computeCoverage() {
+        int m = net.graph().segmentCount();
+        int noName = 0;
+        int noLanes = 0;
+        int noSpeed = 0;
+        for (int e = 0; e < m; e++) {
+            if (net.name(e).isBlank()) {
+                noName++;
+            }
+            if (net.lanesTag(e) <= 0) {
+                noLanes++;
+            }
+            if (net.maxspeedTag(e) <= 0) {
+                noSpeed++;
+            }
+        }
+        return new AttributeCoverage(pct(m - noName, m), pct(m - noLanes, m), pct(m - noSpeed, m), noName, noLanes, noSpeed);
+    }
+
+    private NetworkInsight computeInsight() {
+        RoadGraph g = net.graph();
+        DisjointSetUnion dsu = new DisjointSetUnion(g.nodeCount());
+        for (int e = 0; e < g.segmentCount(); e++) {
+            dsu.union(g.segU(e), g.segV(e));
+        }
+        Map<Integer, Integer> size = new HashMap<>();
+        for (int v = 0; v < g.nodeCount(); v++) {
+            size.merge(dsu.find(v), 1, Integer::sum);
+        }
+        int largest = size.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        int outside = g.nodeCount() - largest;
+        double share = pct(largest, g.nodeCount());
+        return new NetworkInsight(dsu.componentCount(), largest, share, outside,
+                share + "% of mapped intersections form one weakly connected network; " + (dsu.componentCount() - 1)
+                        + " small pieces (" + outside + " intersections) connect to it only through roads outside the arterial "
+                        + "snapshot (e.g. residential streets) or the study boundary.");
     }
 
     // ---------------------------------------------------------------- map data
@@ -140,7 +203,39 @@ public class MumbaiService {
         return new NetworkResponse(area, nodes.size(), items.size(), truncated, items);
     }
 
-    // ---------------------------------------------------------------- routes
+    public SegmentDetail segmentDetail(int id) {
+        RoadGraph g = net.graph();
+        if (id < 0 || id >= g.segmentCount()) {
+            throw new ValidationException("id", "segment " + id + " does not exist");
+        }
+        Segment s = segment(id);
+        MumbaiNetwork.ClassDefault d = net.classDefault(s.roadClass());
+        List<DataItem> attrs = new ArrayList<>();
+        attrs.add(new DataItem("name: " + (s.name().isBlank() ? "(missing)" : s.name()), s.name().isBlank() ? DataClass.NOT_AVAILABLE : DataClass.REAL_MAPPED));
+        attrs.add(new DataItem("road class: " + s.roadClass(), DataClass.REAL_MAPPED));
+        attrs.add(new DataItem("direction: " + (s.oneWay() ? "one-way" : "two-way"), DataClass.REAL_MAPPED));
+        attrs.add(new DataItem("length: " + s.lengthM() + " m (from OSM geometry)", DataClass.DERIVED_RESULT));
+        attrs.add(new DataItem("lanes tag: " + (s.lanesTag() == null ? "missing" : s.lanesTag()), s.lanesTag() == null ? DataClass.NOT_AVAILABLE : DataClass.REAL_MAPPED));
+        attrs.add(new DataItem("maxspeed tag: " + (s.maxspeedTag() == null ? "missing" : s.maxspeedTag() + " km/h"), s.maxspeedTag() == null ? DataClass.NOT_AVAILABLE : DataClass.REAL_MAPPED));
+        attrs.add(new DataItem("free-flow time: " + s.travelTimeS() + " s at " + (s.maxspeedTag() != null ? s.maxspeedTag() : (int) d.speedKph())
+                + " km/h" + (s.maxspeedTag() == null ? " (class default)" : ""), DataClass.ESTIMATE));
+        attrs.add(new DataItem("lane-based capacity assumption: " + Math.round(s.capacityVph()) + " veh/h per direction", DataClass.ESTIMATE));
+        attrs.add(new DataItem("live speed / congestion", DataClass.NOT_AVAILABLE));
+        List<String> missing = new ArrayList<>();
+        if (s.name().isBlank()) {
+            missing.add("name");
+        }
+        if (s.lanesTag() == null) {
+            missing.add("lanes");
+        }
+        if (s.maxspeedTag() == null) {
+            missing.add("maxspeed");
+        }
+        missing.add("live traffic");
+        return new SegmentDetail(s, attrs, missing, "https://www.openstreetmap.org/way/" + s.wayId());
+    }
+
+    // ---------------------------------------------------------------- routes (Dijkstra)
 
     public RouteResponse route(RouteRequest req) {
         if (req == null || req.fromLat() == null || req.fromLon() == null || req.toLat() == null || req.toLon() == null) {
@@ -150,29 +245,32 @@ public class MumbaiService {
         Snap from = snap(req.fromLat(), req.fromLon(), null, "from");
         Snap to = snap(req.toLat(), req.toLon(), null, "to");
         RoadGraph g = net.graph();
-        Dijkstra.Result fib = Dijkstra.run(g, from.node(), to.node(), metric, Dijkstra.Queue.FIBONACCI);
-        Dijkstra.Result bin = Dijkstra.run(g, from.node(), to.node(), metric, Dijkstra.Queue.BINARY);
+        boolean[] blocked = blockedSegments(req.avoidSegmentIds());
+        int avoided = req.avoidSegmentIds() == null ? 0 : (int) req.avoidSegmentIds().stream().distinct().count();
+        Dijkstra.Result fib = Dijkstra.run(g, from.node(), to.node(), metric, Dijkstra.Queue.FIBONACCI, blocked);
+        Dijkstra.Result bin = Dijkstra.run(g, from.node(), to.node(), metric, Dijkstra.Queue.BINARY, blocked);
         double dF = fib.dist()[to.node()];
         double dB = bin.dist()[to.node()];
         boolean agree = (Double.isInfinite(dF) && Double.isInfinite(dB)) || Math.abs(dF - dB) <= 1e-6 * Math.max(1, dF);
         if (!agree) {
             throw new IllegalStateException("Fibonacci-heap and binary-heap Dijkstra disagree");
         }
-        List<String> notes = new ArrayList<>();
-        notes.add(metric == RoadGraph.Metric.TIME
-                ? "Fastest route by DERIVED travel-time estimates (free-flow speeds), not live traffic."
-                : "Shortest route by real OSM road length.");
-        notes.add("Only motorway-to-tertiary roads are in the graph; residential streets are excluded.");
+        String weight = metric == RoadGraph.Metric.DISTANCE ? "real road length (m)" : "estimated free-flow time (s)";
         if (Double.isInfinite(dF)) {
-            notes.add("No directed path exists between the snapped nodes (one-way restrictions or disconnected parts).");
-            return new RouteResponse(from, to, metric.name(), false, 0, 0, List.of(), List.of(), List.of(),
-                    stats(fib), stats(bin), true, notes);
+            Explanation ex = new Explanation(routeData(metric, avoided),
+                    "Dijkstra searched every intersection reachable from A along permitted directions and found no path to B.",
+                    List.of("With this arterial snapshot, its one-way rules" + (avoided > 0 ? " and your " + avoided + " closed segment(s)" : "")
+                            + ", B cannot be reached from A."),
+                    List.of("That the places are unreachable in reality: residential streets and roads outside the study area are not in the graph."));
+            return new RouteResponse(from, to, metric.name(), false, 0, 0, 0, List.of(), List.of(), List.of(),
+                    stats(fib), stats(bin), true, avoided, ex);
         }
         List<Integer> segs = fib.segmentsTo(g, to.node());
         List<double[]> geom = new ArrayList<>();
         List<RoadStep> steps = new ArrayList<>();
         double len = 0;
         double time = 0;
+        double taggedLen = 0;
         int cur = from.node();
         for (int s : segs) {
             double[] gm = net.geometry(s);
@@ -180,6 +278,9 @@ public class MumbaiService {
             cur = g.segU(s) == cur ? g.segV(s) : g.segU(s);
             len += g.lengthM(s);
             time += g.travelTimeS(s);
+            if (net.maxspeedTag(s) > 0) {
+                taggedLen += g.lengthM(s);
+            }
             String nm = net.name(s).isBlank() ? "(unnamed " + net.roadClass(s) + ")" : net.name(s);
             if (!steps.isEmpty() && steps.get(steps.size() - 1).name().equals(nm)) {
                 RoadStep last = steps.remove(steps.size() - 1);
@@ -189,11 +290,51 @@ public class MumbaiService {
             }
         }
         steps.replaceAll(st -> new RoadStep(st.name(), st.roadClass(), round1(st.lengthM())));
-        return new RouteResponse(from, to, metric.name(), true, round1(len), round1(time), segs, geom, steps,
-                stats(fib), stats(bin), true, notes);
+        double taggedPct = len == 0 ? 0 : round1(100 * taggedLen / len);
+        Explanation ex = new Explanation(routeData(metric, avoided),
+                "Dijkstra's algorithm found the path minimising " + weight + " over directed arcs (one-way rules respected). "
+                        + "It ran with a Fibonacci heap and with java.util.PriorityQueue; both returned the same total.",
+                List.of("This is the minimum-" + (metric == RoadGraph.Metric.DISTANCE ? "length" : "estimated-time") + " path in the mapped arterial network: "
+                        + round1(len / 1000) + " km.",
+                        "The estimated free-flow time (" + round1(time / 60) + " min) assumes posted or default speeds; only "
+                                + taggedPct + "% of this route's length has a mapped maxspeed."),
+                List.of("That this is the fastest route now: there is no live traffic data.",
+                        "That residential shortcuts do not exist: they are not in the graph.",
+                        "Turn restrictions are not modelled."));
+        return new RouteResponse(from, to, metric.name(), true, round1(len), round1(time), taggedPct, segs, geom, steps,
+                stats(fib), stats(bin), true, avoided, ex);
     }
 
-    // ---------------------------------------------------------------- components (DSU)
+    private static List<DataItem> routeData(RoadGraph.Metric metric, int avoided) {
+        List<DataItem> d = new ArrayList<>();
+        d.add(new DataItem("OSM arterial road geometry, one-way rules and road classes", DataClass.REAL_MAPPED));
+        d.add(new DataItem(metric == RoadGraph.Metric.DISTANCE ? "Segment lengths from OSM geometry" : "Free-flow travel-time estimates (maxspeed tag or class default)",
+                metric == RoadGraph.Metric.DISTANCE ? DataClass.DERIVED_RESULT : DataClass.ESTIMATE));
+        if (avoided > 0) {
+            d.add(new DataItem(avoided + " segment(s) closed by the user (hypothetical closure)", DataClass.SAMPLE));
+        }
+        d.add(new DataItem("Live traffic", DataClass.NOT_AVAILABLE));
+        return d;
+    }
+
+    private boolean[] blockedSegments(List<Integer> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return null;
+        }
+        if (ids.size() > 500) {
+            throw new ValidationException("avoidSegmentIds", "at most 500 segments can be closed");
+        }
+        boolean[] b = new boolean[net.graph().segmentCount()];
+        for (Integer id : ids) {
+            if (id == null || id < 0 || id >= b.length) {
+                throw new ValidationException("avoidSegmentIds", "segment " + id + " does not exist");
+            }
+            b[id] = true;
+        }
+        return b;
+    }
+
+    // ---------------------------------------------------------------- connectivity (DSU + directed BFS)
 
     public ComponentsResponse components(ComponentsRequest req) {
         if (req == null) {
@@ -204,7 +345,8 @@ public class MumbaiService {
         Set<Integer> removed = removedSet(req.removedSegmentIds(), segs);
         int[] nodeIds = areaNodes(segs);
         Map<Integer, Integer> local = localIndex(nodeIds);
-        ComponentSummary before = summarize(segs, Set.of(), nodeIds, local, null);
+        int[] compBefore = new int[nodeIds.length];
+        ComponentSummary before = summarize(segs, Set.of(), nodeIds, local, compBefore);
         int[] compOfNode = new int[nodeIds.length];
         ComponentSummary after = summarize(segs, removed, nodeIds, local, compOfNode);
         RoadGraph g = net.graph();
@@ -212,10 +354,87 @@ public class MumbaiService {
         for (int e : segs) {
             segComp.add(new int[] {e, removed.contains(e) ? -1 : compOfNode[local.get(g.segU(e))]});
         }
-        return new ComponentsResponse(area, nodeIds.length, segs.length, removed.size(), before, after, segComp, List.of(
-                "Undirected view: a segment connects its two intersections regardless of one-way rules.",
-                "Removed segments are excluded and the DSU is rebuilt; DSU cannot delete edges incrementally.",
-                "Small components at the edge of the selected area are often roads that continue outside it."));
+        PairConnectivity pair = null;
+        if (req.fromLat() != null || req.toLat() != null) {
+            if (req.fromLat() == null || req.fromLon() == null || req.toLat() == null || req.toLon() == null) {
+                throw new ValidationException("from", "give both origin and destination coordinates, or neither");
+            }
+            boolean[] allowed = new boolean[net.nodeCount()];
+            for (int id : nodeIds) {
+                allowed[id] = true;
+            }
+            Snap a = snap(req.fromLat(), req.fromLon(), allowed, "from");
+            Snap b = snap(req.toLat(), req.toLon(), allowed, "to");
+            int la = local.get(a.node());
+            int lb = local.get(b.node());
+            boolean[] reachBefore = directedReach(segs, Set.of(), nodeIds, local, la);
+            boolean[] reachAfter = directedReach(segs, removed, nodeIds, local, la);
+            int reachable = 0;
+            int weakSize = 0;
+            for (int i = 0; i < nodeIds.length; i++) {
+                if (reachAfter[i]) {
+                    reachable++;
+                }
+                if (compOfNode[i] == compOfNode[la]) {
+                    weakSize++;
+                }
+            }
+            pair = new PairConnectivity(a, b, compBefore[la] == compBefore[lb], compOfNode[la] == compOfNode[lb],
+                    reachBefore[lb], reachAfter[lb], reachable, weakSize);
+        }
+        List<String> can = new ArrayList<>(List.of(
+                "After removing " + removed.size() + " segment(s), the selected area's arterial graph has " + after.componentCount()
+                        + " weakly connected component(s) (largest: " + Math.round(after.largestShare() * 100) + "% of its intersections)."));
+        if (pair != null) {
+            can.add("Weak connectivity (any road link ignoring direction): " + (pair.weaklyConnectedAfter() ? "yes" : "no")
+                    + "; a drivable directed path respecting one-way rules: " + (pair.directedPathAfter() ? "yes" : "no") + ".");
+        }
+        Explanation ex = new Explanation(List.of(
+                new DataItem("OSM arterial segments inside the selected area", DataClass.REAL_MAPPED),
+                new DataItem("Removed segments chosen by the user (hypothetical closures)", removed.isEmpty() ? DataClass.REAL_MAPPED : DataClass.SAMPLE),
+                new DataItem("Live closures", DataClass.NOT_AVAILABLE)),
+                "Disjoint-set union over the undirected view (weak connectivity), rebuilt after removals because DSU cannot delete edges; "
+                        + "breadth-first search over directed arcs for one-way-aware reachability.",
+                can,
+                List.of("Practical vehicle accessibility: residential streets, turn bans and real closures are not in the data.",
+                        "Small components at the area boundary usually continue outside the selected box.",
+                        "Weakly connected does not mean drivable: one-way rules can still block a trip."));
+        return new ComponentsResponse(area, nodeIds.length, segs.length, removed.size(), before, after, segComp, pair, ex);
+    }
+
+    private boolean[] directedReach(int[] segs, Set<Integer> removed, int[] nodeIds, Map<Integer, Integer> local, int start) {
+        RoadGraph g = net.graph();
+        List<List<Integer>> adj = new ArrayList<>(nodeIds.length);
+        for (int i = 0; i < nodeIds.length; i++) {
+            adj.add(new ArrayList<>());
+        }
+        for (int e : segs) {
+            if (removed.contains(e)) {
+                continue;
+            }
+            int u = local.get(g.segU(e));
+            int v = local.get(g.segV(e));
+            adj.get(u).add(v);
+            if (!g.oneWay(e)) {
+                adj.get(v).add(u);
+            }
+        }
+        boolean[] seen = new boolean[nodeIds.length];
+        int[] q = new int[nodeIds.length];
+        int h = 0;
+        int t = 0;
+        seen[start] = true;
+        q[t++] = start;
+        while (h < t) {
+            int u = q[h++];
+            for (int v : adj.get(u)) {
+                if (!seen[v]) {
+                    seen[v] = true;
+                    q[t++] = v;
+                }
+            }
+        }
+        return seen;
     }
 
     private ComponentSummary summarize(int[] segs, Set<Integer> removed, int[] nodeIds, Map<Integer, Integer> local,
@@ -234,7 +453,7 @@ public class MumbaiService {
                 redundant++;
             }
         }
-        Map<Integer, int[]> size = new LinkedHashMap<>(); // root -> [nodes, segments]
+        Map<Integer, int[]> size = new LinkedHashMap<>();
         Map<Integer, double[]> center = new LinkedHashMap<>();
         for (int i = 0; i < nodeIds.length; i++) {
             int r = dsu.find(i);
@@ -281,6 +500,11 @@ public class MumbaiService {
         if (req == null || req.sourceLat() == null || req.sourceLon() == null || req.sinkLat() == null || req.sinkLon() == null) {
             throw new ValidationException("criticalLinks", "area, source and sink coordinates are required");
         }
+        String model = req.capacityModel() == null ? "UNIT" : req.capacityModel();
+        if (!model.equals("UNIT") && !model.equals("LANE_ASSUMPTION")) {
+            throw new ValidationException("capacityModel", "must be UNIT or LANE_ASSUMPTION");
+        }
+        boolean unit = model.equals("UNIT");
         Area area = checkArea(req.area());
         int[] segs = areaSegments(area, maxFlowSegments);
         if (segs.length == 0) {
@@ -300,12 +524,12 @@ public class MumbaiService {
         }
         RoadGraph g = net.graph();
         FlowNetwork fn = new FlowNetwork(nodeIds.length);
-        List<int[]> arcSeg = new ArrayList<>(); // flow-edge index -> [segment, fromNode, toNode]
+        List<int[]> arcSeg = new ArrayList<>();
         for (int e : segs) {
             if (removed.contains(e)) {
                 continue;
             }
-            long cap = Math.round(g.capacityVph(e));
+            long cap = unit ? 1 : Math.round(g.capacityVph(e));
             int u = local.get(g.segU(e));
             int v = local.get(g.segV(e));
             fn.addEdge(u, v, cap);
@@ -319,7 +543,7 @@ public class MumbaiService {
         int t = local.get(sink.node());
         MaxFlowResult ff = FordFulkerson.run(fn, s, t, TraceOptions.NONE);
         MinCut.verifyFlow(fn, s, t);
-        MaxFlowResult ek = EdmondsKarp.run(fn, s, t, new TraceOptions(20, false)); // final residual state = EK
+        MaxFlowResult ek = EdmondsKarp.run(fn, s, t, new TraceOptions(20, false));
         long verified = MinCut.verifyFlow(fn, s, t);
         MinCut.Result cut = MinCut.fromResidual(fn, s);
         List<CutSegment> cutSegs = new ArrayList<>();
@@ -343,19 +567,74 @@ public class MumbaiService {
         }
         List<String> warnings = new ArrayList<>();
         if (ek.maxFlow() == 0) {
-            warnings.add("No directed path from source to sink inside the selected area (check one-way roads or enlarge the area).");
+            warnings.add("No directed path from source to sink inside the selected area (one-way rules, removals, or enlarge the area).");
         }
         if (!removed.isEmpty()) {
-            warnings.add(removed.size() + " segment(s) removed by the user before the analysis.");
+            warnings.add(removed.size() + " segment(s) removed by the user before the analysis (hypothetical).");
         }
-        return new CriticalLinksResponse(area, source, sink, nodeIds.length, fn.edgeCount(), ek.maxFlow(), cut.cutCapacity(),
-                cut.cutCapacity() == ek.maxFlow(), verified == ek.maxFlow(), cutSegs, flows, flowStats(ek), flowStats(ff),
-                ff.maxFlow() == ek.maxFlow(), paths, List.of(
-                        "Capacities are a MODELLED PROXY (vehicles/hour from lanes x per-lane capacity), not measured throughput.",
-                        "Max flow = the most vehicles/hour that could move from source to sink inside the selected area if every road ran at its proxy capacity.",
-                        "The minimum cut is a set of directed road segments whose removal disconnects sink from source in this capacity model; their proxy capacities sum to the max flow.",
-                        "It does not predict real disaster impact, and a road outside the cut can still matter in practice."),
-                warnings);
+        if (source.snapDistanceM() > 300 || sink.snapDistanceM() > 300) {
+            warnings.add("A clicked point is more than 300 m from the nearest arterial intersection; the analysis uses the snapped intersection.");
+        }
+        String unitLabel = unit ? "independent routes (edge-disjoint directed paths)" : "assumed vehicles/hour (not measured)";
+        Explanation ex = unit
+                ? new Explanation(List.of(new DataItem("OSM arterial segments and one-way rules in the area", DataClass.REAL_MAPPED),
+                        new DataItem("Capacity 1 per directed segment (structural model, no traffic assumption)", DataClass.DERIVED_RESULT)),
+                "Edmonds-Karp and Ford-Fulkerson computed the maximum number of directed source-to-sink routes that share no road segment; "
+                        + "the minimum cut is the smallest set of directed segments whose closure disconnects sink from source (Menger's theorem).",
+                List.of("There are " + ek.maxFlow() + " road-disjoint directed routes from source to sink inside the area.",
+                        "Closing the " + cutSegs.size() + " highlighted segment(s) would disconnect them within this graph; no smaller set does."),
+                List.of("How many vehicles can travel: capacities are not measured.",
+                        "Real disruption impact: residential streets outside the snapshot can provide detours."))
+                : new Explanation(List.of(new DataItem("OSM arterial segments and one-way rules in the area", DataClass.REAL_MAPPED),
+                        new DataItem("Lane-based capacity assumption (lanes tag or class default x per-lane rule)", DataClass.ESTIMATE)),
+                "Edmonds-Karp and Ford-Fulkerson computed the maximum flow under the assumed per-segment capacities; the minimum cut's assumed "
+                        + "capacities sum to the same value.",
+                List.of("Under this assumption, the highlighted segments are the binding bottleneck between source and sink."),
+                List.of("Actual traffic throughput: " + coverage.segmentsMissingLanes() + " of " + net.graph().segmentCount()
+                        + " segments have no lanes tag and the per-lane values are rules of thumb.",
+                        "Current congestion or real disruption impact."));
+        return new CriticalLinksResponse(area, source, sink, model, unitLabel, nodeIds.length, fn.edgeCount(), ek.maxFlow(),
+                cut.cutCapacity(), cut.cutCapacity() == ek.maxFlow(), verified == ek.maxFlow(), cutSegs, flows,
+                flowStats(ek), flowStats(ff), ff.maxFlow() == ek.maxFlow(), paths, warnings, ex);
+    }
+
+    // ---------------------------------------------------------------- statistics on real derived values (Quickselect)
+
+    public LengthStatsResponse lengthStats(Area requested, List<Double> percentiles) {
+        Area area = checkArea(requested);
+        int[] segs = areaSegments(area, Integer.MAX_VALUE);
+        if (segs.length == 0) {
+            throw new ValidationException("area", "no road segments in the area");
+        }
+        List<Double> ps = percentiles == null || percentiles.isEmpty() ? List.of(50.0, 90.0) : percentiles;
+        if (ps.size() > 10) {
+            throw new ValidationException("percentiles", "at most 10 percentiles");
+        }
+        double[] v = new double[segs.length];
+        for (int i = 0; i < segs.length; i++) {
+            v[i] = net.graph().lengthM(segs[i]);
+        }
+        List<PercentileValue> out = new ArrayList<>();
+        for (Double p : ps) {
+            if (p == null || !(p >= 0 && p <= 100)) {
+                throw new ValidationException("percentiles", "each percentile must be in [0, 100]");
+            }
+            long t0 = System.nanoTime();
+            RandomizedQuickselect.Selection sel = RandomizedQuickselect.percentile(v, p, 2026L);
+            double qsMs = (System.nanoTime() - t0) / 1e6;
+            long t1 = System.nanoTime();
+            double[] sorted = v.clone();
+            Arrays.sort(sorted);
+            int rank = Math.max(1, (int) Math.ceil(p / 100 * v.length));
+            double sortValue = sorted[rank - 1];
+            double sortMs = (System.nanoTime() - t1) / 1e6;
+            out.add(new PercentileValue(p, round1(sel.value()), sel.comparisons(), round3(qsMs), round3(sortMs), sel.value() == sortValue));
+        }
+        return new LengthStatsResponse(area, v.length, out, new Explanation(
+                List.of(new DataItem("Segment lengths from OSM geometry in the area", DataClass.DERIVED_RESULT)),
+                "Randomized Quickselect (seed 2026) found nearest-rank percentiles of segment length; each was checked against a full sort.",
+                List.of("How long arterial road pieces between intersections typically are in this area."),
+                List.of("Anything about traffic: these are geometric lengths, not travel observations.")));
     }
 
     // ---------------------------------------------------------------- helpers
@@ -400,7 +679,7 @@ public class MumbaiService {
 
     private int[] areaNodes(int[] segs) {
         RoadGraph g = net.graph();
-        Set<Integer> s = new java.util.TreeSet<>();
+        Set<Integer> s = new TreeSet<>();
         for (int e : segs) {
             s.add(g.segU(e));
             s.add(g.segV(e));
@@ -409,7 +688,7 @@ public class MumbaiService {
     }
 
     private static Map<Integer, Integer> localIndex(int[] nodeIds) {
-        Map<Integer, Integer> m = new java.util.HashMap<>();
+        Map<Integer, Integer> m = new HashMap<>();
         for (int i = 0; i < nodeIds.length; i++) {
             m.put(nodeIds[i], i);
         }
@@ -469,17 +748,17 @@ public class MumbaiService {
     }
 
     private static RoadGraph.Metric parseMetric(String m) {
-        if (m == null || m.equals("TIME")) {
-            return RoadGraph.Metric.TIME;
-        }
-        if (m.equals("DISTANCE")) {
+        if (m == null || m.equals("DISTANCE")) {
             return RoadGraph.Metric.DISTANCE;
         }
-        throw new ValidationException("metric", "must be TIME or DISTANCE");
+        if (m.equals("ESTIMATED_TIME") || m.equals("TIME")) {
+            return RoadGraph.Metric.TIME;
+        }
+        throw new ValidationException("metric", "must be DISTANCE or ESTIMATED_TIME");
     }
 
     private static QueueStats stats(Dijkstra.Result r) {
-        return new QueueStats(r.queue() == Dijkstra.Queue.FIBONACCI ? "Fibonacci heap" : "java.util.PriorityQueue (binary heap, lazy deletion)",
+        return new QueueStats(r.queue() == Dijkstra.Queue.FIBONACCI ? "Fibonacci heap (custom)" : "java.util.PriorityQueue (binary heap, lazy deletion)",
                 r.settled(), r.relaxations(), r.heapOperations(), Math.round(r.elapsedMillis() * 1000) / 1000.0);
     }
 
@@ -508,11 +787,19 @@ public class MumbaiService {
         if (d == null) {
             return "unknown";
         }
-        return "snapshot, " + (d == 0 ? "retrieved today" : d + " day(s) old") + "; re-run the data pipeline to refresh";
+        return "static snapshot, " + (d == 0 ? "retrieved today" : d + " day(s) old") + "; re-run the data pipeline to refresh";
+    }
+
+    static double pct(int part, int whole) {
+        return whole == 0 ? 0 : Math.round(1000.0 * part / whole) / 10.0;
     }
 
     static double round1(double v) {
         return Math.round(v * 10) / 10.0;
+    }
+
+    static double round3(double v) {
+        return Math.round(v * 1000) / 1000.0;
     }
 
     static double round4(double v) {

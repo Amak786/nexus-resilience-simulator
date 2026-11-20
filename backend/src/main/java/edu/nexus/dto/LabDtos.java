@@ -37,6 +37,15 @@ public final class LabDtos {
 
     public record LabHeapResponse(List<HeapOpResult> results, int size, String note) {}
 
+    /** Bloom-filter lab: ids to insert (SAMPLE data), ids to query, target false-positive rate, absent probes. */
+    public record LabBloomRequest(List<String> inserted, List<String> queries, Double falsePositiveRate, Integer probes) {}
+
+    /** bloom: POSSIBLY_PRESENT or DEFINITELY_ABSENT; exact: the authoritative HashSet answer. */
+    public record BloomQueryResult(String id, String bloom, boolean exactPresent, String verdict) {}
+
+    public record LabBloomResponse(long bits, int hashes, int inserted, double theoreticalFpr, int probes, int probeFalsePositives,
+                                   double measuredFpr, List<BloomQueryResult> results, String note) {}
+
     public record LabEdge(String from, String to, Long capacity) {}
 
     public record LabFlowRequest(List<String> nodes, List<LabEdge> edges, String source, String sink) {}

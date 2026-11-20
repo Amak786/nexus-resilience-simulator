@@ -101,15 +101,22 @@ public class EventService {
     public synchronized DataSource dataSource() {
         String retrieved = MumbaiService.text(provenance, "retrievedAt");
         String fresh = MumbaiService.freshness(retrieved);
-        String category = "LATEST_AVAILABLE";
-        if (lastRefresh != null && lastRefreshResult != null && "OK".equals(lastRefreshResult.status())) {
-            category = "VERIFIED_LIVE";
-            fresh = "live import from the OSM Notes API at " + lastRefresh + " (" + lastRefreshResult.newRecords() + " new)";
+        String status = "snapshot";
+        if (lastRefresh != null && lastRefreshResult != null) {
+            if ("OK".equals(lastRefreshResult.status())) {
+                status = "live import OK";
+                fresh = "last successful import from the OSM Notes API at " + lastRefresh + " (" + lastRefreshResult.newRecords() + " new)";
+            } else if ("FAILED".equals(lastRefreshResult.status())) {
+                status = "last import failed";
+                fresh = "snapshot only; last import attempt at " + lastRefresh + " failed: " + lastRefreshResult.message();
+            }
         }
-        return new DataSource("events", MumbaiService.text(provenance, "dataset") + " (" + index.size() + " records)", category,
-                MumbaiService.text(provenance, "source"), MumbaiService.text(provenance, "sourceUrl"),
-                MumbaiService.text(provenance, "licence"), retrieved, null, MumbaiService.ageDays(retrieved), fresh,
-                "Greater Mumbai study area", MumbaiService.text(provenance, "notes"));
+        return new DataSource("events", MumbaiService.text(provenance, "dataset") + " (" + index.size() + " records)",
+                MumbaiDtos.DataClass.VERIFIED_OBSERVATION, status, MumbaiService.text(provenance, "source"),
+                MumbaiService.text(provenance, "sourceUrl"), MumbaiService.text(provenance, "licence"), retrieved, null,
+                MumbaiService.ageDays(retrieved), fresh, "Greater Mumbai study area",
+                "Community-reported OpenStreetMap map issues (missing roads, wrong names, construction noticed by mappers). "
+                        + "They are NOT traffic incidents or official closures. Usernames are removed.");
     }
 
     // ---------------------------------------------------------------- ordered queries (red-black tree)

@@ -100,6 +100,12 @@ public class ApiController {
     }
 
     @Tag(name = "Algorithm Lab")
+    @PostMapping("/lab/bloom")
+    public edu.nexus.dto.LabDtos.LabBloomResponse labBloom(@RequestBody edu.nexus.dto.LabDtos.LabBloomRequest request) {
+        return lab.bloom(request);
+    }
+
+    @Tag(name = "Algorithm Lab")
     @PostMapping("/lab/quickselect")
     public LabSelectResponse labSelect(@RequestBody LabSelectRequest request) {
         return lab.quickselect(request);

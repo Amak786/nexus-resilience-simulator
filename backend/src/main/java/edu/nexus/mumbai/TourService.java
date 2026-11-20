@@ -43,7 +43,8 @@ public class TourService {
     public record TourResponse(List<String> tour, List<Snap> snapped, List<String> excludedStops, List<Leg> legs,
                                double plannedKm, double executableKm, double nearestNeighbourKm, List<String> nearestNeighbourTour,
                                double mstLowerBoundKm, Double exactKm, double certifiedRatioBound, List<List<Double>> plannedMatrixKm,
-                               List<double[]> geometry, String guarantee, List<String> assumptions) {}
+                               List<double[]> geometry, String guarantee, List<String> assumptions,
+                               MumbaiDtos.Explanation explanation) {}
 
     private final MumbaiService mumbai;
 
@@ -168,7 +169,17 @@ public class TourService {
                 List.of("Distances are shortest real road lengths over the OSM arterial graph (km), computed with Dijkstra on a Fibonacci heap.",
                         "Planning distance = max of the two directed distances, so one-way streets never make the plan optimistic.",
                         "The executable route follows the directed shortest path for each leg; its length is at most the planned length.",
-                        "Travel time, opening hours and vehicle limits are not modelled."));
+                        "Travel time, opening hours and vehicle limits are not modelled."),
+                new MumbaiDtos.Explanation(List.of(
+                        new MumbaiDtos.DataItem("Stops placed by the user, snapped to OSM intersections", MumbaiDtos.DataClass.REAL_MAPPED),
+                        new MumbaiDtos.DataItem("Shortest road distances (Dijkstra over OSM lengths, one-way rules)", MumbaiDtos.DataClass.DERIVED_RESULT),
+                        new MumbaiDtos.DataItem("Live traffic", MumbaiDtos.DataClass.NOT_AVAILABLE)),
+                        "A visiting order from a minimum spanning tree walked in preorder (metric-TSP 2-approximation) over symmetric "
+                                + "planning distances max(d(i,j), d(j,i)), then each leg expanded into its directed shortest road path.",
+                        List.of("The planned order is at most twice as long as the best possible order for these planning distances.",
+                                "The drivable route length (" + round3(execKm) + " km) never exceeds the planned length."),
+                        List.of("That this is the optimal or fastest tour: it is an approximation and has no traffic data.",
+                                "Turn restrictions, stop durations and vehicle limits are not modelled.")));
     }
 
     /** Held-Karp fixes vertex 0 as start; tour length is rotation-invariant, so solving from index 0 is fine. */

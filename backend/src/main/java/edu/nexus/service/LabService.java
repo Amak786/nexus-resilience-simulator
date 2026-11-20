@@ -305,6 +305,57 @@ public class LabService {
                 "insert and decrease-key are O(1) amortized; extract-min is O(log n) amortized because it consolidates roots of equal degree.");
     }
 
+    /** Bloom filter on user-supplied sample ids, every possible hit confirmed by an exact HashSet. */
+    public edu.nexus.dto.LabDtos.LabBloomResponse bloom(edu.nexus.dto.LabDtos.LabBloomRequest req) {
+        if (req == null || req.inserted() == null || req.inserted().isEmpty()) {
+            throw new ValidationException("inserted", "enter at least one id to insert");
+        }
+        if (req.inserted().size() > 10_000 || (req.queries() != null && req.queries().size() > 1_000)) {
+            throw new ValidationException("inserted", "at most 10,000 inserted and 1,000 queried ids");
+        }
+        double p = Inputs.doubleParam(req.falsePositiveRate(), 0.01, 1e-6, 0.5, "falsePositiveRate");
+        int probes = Inputs.intParam(req.probes(), 10_000, 0, 100_000, "probes");
+        java.util.Set<String> exact = new java.util.HashSet<>();
+        for (int i = 0; i < req.inserted().size(); i++) {
+            String id = req.inserted().get(i);
+            if (id == null || id.isBlank() || id.length() > 64) {
+                throw new ValidationException("inserted[" + i + "]", "ids must be 1-64 non-blank characters");
+            }
+            exact.add(id.trim());
+        }
+        edu.nexus.algorithms.bloom.BloomFilter bf = edu.nexus.algorithms.bloom.BloomFilter.optimal(exact.size(), p, 2026L);
+        exact.forEach(bf::add);
+        List<edu.nexus.dto.LabDtos.BloomQueryResult> results = new ArrayList<>();
+        for (String raw : req.queries() == null ? List.<String>of() : req.queries()) {
+            if (raw == null || raw.isBlank()) {
+                continue;
+            }
+            String id = raw.trim();
+            boolean maybe = bf.mightContain(id);
+            boolean real = exact.contains(id);
+            String verdict = !maybe ? "definitely absent (no exact lookup needed)"
+                    : real ? "possibly present -> exact store confirms: duplicate" : "possibly present -> exact store says no: FALSE POSITIVE";
+            results.add(new edu.nexus.dto.LabDtos.BloomQueryResult(id, maybe ? "POSSIBLY_PRESENT" : "DEFINITELY_ABSENT", real, verdict));
+        }
+        int fp = 0;
+        int tested = 0;
+        for (int i = 0; tested < probes; i++) {
+            String probe = "__probe-" + i;
+            if (exact.contains(probe)) {
+                continue;
+            }
+            tested++;
+            if (bf.mightContain(probe)) {
+                fp++;
+            }
+        }
+        return new edu.nexus.dto.LabDtos.LabBloomResponse(bf.bitCount(), bf.hashCount(), exact.size(),
+                Math.round(bf.theoreticalFalsePositiveProbability() * 1e6) / 1e6, tested, fp,
+                tested == 0 ? 0 : Math.round(1e6 * fp / tested) / 1e6, results,
+                "SAMPLE data. A Bloom filter never misses an inserted id (no false negatives here), but can say 'possibly present' for an id "
+                        + "it never saw (false positive), so the exact HashSet is always the final answer.");
+    }
+
     private static RunTrace trace(MaxFlowResult r, List<String> labels) {
         List<TraceStep> steps = new ArrayList<>();
         for (MaxFlowResult.AugmentingStep s : r.steps()) {

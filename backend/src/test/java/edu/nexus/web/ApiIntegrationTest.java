@@ -31,7 +31,7 @@ class ApiIntegrationTest {
         mvc.perform(get("/api/health")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("UP"));
         mvc.perform(get("/api/algorithms")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(9));
         mvc.perform(get("/api/mumbai/provenance")).andExpect(status().isOk())
-                .andExpect(jsonPath("$.sources[?(@.id=='live-traffic')].category").value("NOT_AVAILABLE"));
+                .andExpect(jsonPath("$.sources[?(@.id=='live-traffic')].dataClass").value("NOT_AVAILABLE"));
         mvc.perform(get("/v3/api-docs")).andExpect(status().isOk());
     }
 

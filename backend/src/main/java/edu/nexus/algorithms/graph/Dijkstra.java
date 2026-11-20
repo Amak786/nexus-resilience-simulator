@@ -83,16 +83,27 @@ public final class Dijkstra {
 
     /** Shortest paths from {@code source}; stops early when {@code target} is settled ({@code -1} = all). */
     public static Result run(RoadGraph g, int source, int target, RoadGraph.Metric metric, Queue queue) {
+        return run(g, source, target, metric, queue, null);
+    }
+
+    /**
+     * As {@link #run(RoadGraph, int, int, RoadGraph.Metric, Queue)}, but arcs of segments with
+     * {@code blocked[segment] == true} are skipped (closed roads). {@code blocked} may be null.
+     */
+    public static Result run(RoadGraph g, int source, int target, RoadGraph.Metric metric, Queue queue, boolean[] blocked) {
+        if (blocked != null && blocked.length != g.segmentCount()) {
+            throw new IllegalArgumentException("blocked array must have one entry per segment");
+        }
         if (source < 0 || source >= g.nodeCount()) {
             throw new IllegalArgumentException("source node " + source + " does not exist");
         }
         if (target < -1 || target >= g.nodeCount()) {
             throw new IllegalArgumentException("target node " + target + " does not exist");
         }
-        return queue == Queue.FIBONACCI ? fibonacci(g, source, target, metric) : binary(g, source, target, metric);
+        return queue == Queue.FIBONACCI ? fibonacci(g, source, target, metric, blocked) : binary(g, source, target, metric, blocked);
     }
 
-    private static Result fibonacci(RoadGraph g, int s, int t, RoadGraph.Metric metric) {
+    private static Result fibonacci(RoadGraph g, int s, int t, RoadGraph.Metric metric, boolean[] blocked) {
         long start = System.nanoTime();
         int n = g.nodeCount();
         double[] dist = new double[n];
@@ -118,7 +129,7 @@ public final class Dijkstra {
             }
             for (int a = g.firstArc(u); a < g.endArc(u); a++) {
                 int v = g.arcTo(a);
-                if (done[v]) {
+                if (done[v] || (blocked != null && blocked[g.arcSegment(a)])) {
                     continue;
                 }
                 double nd = dist[u] + g.weight(g.arcSegment(a), metric);
@@ -138,7 +149,7 @@ public final class Dijkstra {
         return new Result(Queue.FIBONACCI, s, dist, prev, settled, relax, ops, (System.nanoTime() - start) / 1e6);
     }
 
-    private static Result binary(RoadGraph g, int s, int t, RoadGraph.Metric metric) {
+    private static Result binary(RoadGraph g, int s, int t, RoadGraph.Metric metric, boolean[] blocked) {
         long start = System.nanoTime();
         int n = g.nodeCount();
         double[] dist = new double[n];
@@ -166,7 +177,7 @@ public final class Dijkstra {
             }
             for (int a = g.firstArc(u); a < g.endArc(u); a++) {
                 int v = g.arcTo(a);
-                if (done[v]) {
+                if (done[v] || (blocked != null && blocked[g.arcSegment(a)])) {
                     continue;
                 }
                 double nd = dist[u] + g.weight(g.arcSegment(a), metric);

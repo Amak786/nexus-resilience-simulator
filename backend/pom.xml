@@ -15,7 +15,7 @@
     <artifactId>nexus-api</artifactId>
     <version>1.0.0</version>
     <name>NEXUS API</name>
-    <description>Infrastructure Failure &amp; Resilience Simulator - Java algorithm engine and REST API</description>
+    <description>NEXUS - Mumbai Road Network Intelligence: Java algorithm engine and REST API</description>
 
     <properties>
         <java.version>21</java.version>
