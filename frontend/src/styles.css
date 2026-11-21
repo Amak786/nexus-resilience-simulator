@@ -311,3 +311,13 @@ summary { cursor: pointer; font-weight: 600; font-size: 0.88rem; }
 @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
 button.link { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; font: inherit; text-decoration: underline; }
 tr.selected td { background: var(--accent-soft); }
+.status-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.status-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; font-size: 0.8rem; }
+.dot.good { background: var(--good); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); } .dot.neutral { background: var(--edge); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.chip { border: 1px solid var(--border); background: var(--surface-2); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 0.78rem; cursor: pointer; text-align: left; }
+.chip:hover { background: var(--accent-soft); }
+.answer { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 10px; }
+.answer-text { white-space: pre-wrap; font-size: 0.9rem; line-height: 1.5; }
+pre.evidence { max-height: 220px; overflow: auto; background: var(--surface-2); padding: 8px; border-radius: 6px; font-size: 0.72rem; white-space: pre-wrap; word-break: break-word; }
+textarea { width: 100%; font: inherit; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }

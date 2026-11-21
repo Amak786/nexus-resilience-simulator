@@ -23,6 +23,12 @@
     </properties>
 
     <dependencies>
+        <!-- Claude API (official Anthropic Java SDK) for the grounded AI analyst; key read from ANTHROPIC_API_KEY on the server -->
+        <dependency>
+            <groupId>com.anthropic</groupId>
+            <artifactId>anthropic-java</artifactId>
+            <version>3.3.0</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>

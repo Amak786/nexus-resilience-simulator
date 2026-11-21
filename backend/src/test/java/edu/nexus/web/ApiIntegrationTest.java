@@ -16,7 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** Full Spring context over HTTP: Mumbai endpoints, JSON errors, CORS and size limits. */
-@SpringBootTest(properties = {"nexus.cors-allowed-origins=https://nexus-demo.example", "nexus.max-request-bytes=200000"})
+@SpringBootTest(properties = {"nexus.cors-allowed-origins=https://nexus-demo.example", "nexus.max-request-bytes=200000", "nexus.live.enabled=false", "ANTHROPIC_API_KEY="})
 @AutoConfigureMockMvc
 class ApiIntegrationTest {
 

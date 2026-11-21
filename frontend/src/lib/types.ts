@@ -154,3 +154,22 @@ export interface AlgorithmInfo { id: string; name: string; syllabusUnit: string;
 export interface BenchmarkRow { size: string; primary: string; primaryMedianMs: number; primaryMinMs: number; primaryOps: number; baseline: string; baselineMedianMs: number | null; baselineOps: number | null; quality: string }
 export interface BenchmarkReport { algorithm: string; title: string; opsMeaning: string; warmups: number; repetitions: number; rows: BenchmarkRow[]; environment: string; methodology: string[] }
 export interface SelfCheckReport { allPassed: boolean; seed: number; checks: { algorithm: string; property: string; cases: number; passed: boolean; detail: string; ms: number }[] }
+
+// ---------------------------------------------------------------- live data and AI analyst
+export interface LiveSource {
+  id: string; name: string; owner: string | null; endpoint: string | null; licence: string | null; coverage: string | null;
+  updateFrequency: string | null; kind: 'LIVE' | 'PERIODIC' | 'NOT_AVAILABLE'; status: 'OK' | 'STALE' | 'ERROR' | 'NOT_YET_FETCHED' | 'DISABLED' | 'NOT_AVAILABLE';
+  lastAttemptAt: string | null; lastSuccessAt: string | null; observedAt: string | null; ageMinutes: number | null; error: string | null;
+  records: number; notes: string;
+}
+export interface Weather {
+  observedAtLocal: string; observedAtUtc: string; temperatureC: number; humidityPct: number; precipitationMm: number; rainMm: number;
+  windKph: number; weatherCode: number; description: string; next6hPrecipitationMm: number;
+}
+export interface RoadEdit { wayId: number; name: string; highway: string; version: number; editedAt: string; changeset: number; osmUrl: string; geometry: number[] | null }
+export interface LiveStatus { serverTime: string; sources: LiveSource[]; weather: Weather | null; roadEdits: RoadEdit[]; roadEditsSince: string }
+export interface EvidenceItem { tool: string; input: unknown; result: { result?: string; source?: string; computedAt?: string; error?: string; data?: unknown } }
+export interface AnalystResponse {
+  aiAvailable: boolean; model: string; answer: string; answerKind: 'AI_INTERPRETATION' | 'EVIDENCE_ONLY' | 'REFUSAL' | 'INCOMPLETE';
+  evidence: EvidenceItem[]; stopReason: string | null; generatedAt: string; notice: string | null;
+}

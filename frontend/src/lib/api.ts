@@ -1,7 +1,7 @@
 import type {
   AlgorithmInfo, ApiErrorBody, Area, BenchmarkReport, ComponentsResponse, CriticalLinksResponse, DemoModification,
   EventListResponse, EventStatsResponse, IntegrityResponse, LengthStatsResponse, NetworkResponse, ProvenanceResponse,
-  RefreshResponse, RouteResponse, ScenarioResponse, SearchResponse, SegmentDetail, SelfCheckReport, TourResponse, ValidationIssue,
+  RefreshResponse, RouteResponse, LiveStatus, AnalystResponse, ScenarioResponse, SearchResponse, SegmentDetail, SelfCheckReport, TourResponse, ValidationIssue,
 } from './types';
 
 /** Base URL of the Java API. Empty = same origin (bundled deployment or dev proxy). */
@@ -82,6 +82,9 @@ export const api = {
     }),
   scenario: (area: Area, from: LatLon, to: LatLon) =>
     request<ScenarioResponse>('GET', `/api/integrity/scenario?${q(area)}&fromLat=${from.lat}&fromLon=${from.lon}&toLat=${to.lat}&toLon=${to.lon}`),
+  live: () => request<LiveStatus>('GET', '/api/live/status'),
+  analystInfo: () => request<{ aiConfigured: boolean; model: string; tools: string[] }>('GET', '/api/analyst/info'),
+  ask: (question: string) => request<AnalystResponse>('POST', '/api/analyst/ask', { question }),
   lab: <T,>(kind: 'flow' | 'dsu' | 'rbtree' | 'fibheap' | 'bloom' | 'quickselect' | 'segment-tree' | 'tsp', body: unknown) =>
     request<T>('POST', `/api/lab/${kind}`, body),
   benchmark: (algorithm: string) => request<BenchmarkReport>('POST', `/api/benchmarks/${algorithm}`),

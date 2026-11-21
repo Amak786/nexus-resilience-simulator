@@ -13,7 +13,7 @@ import { Button } from './components/ui';
 interface Route { path: string; label: string; page: ComponentType }
 
 const ROUTES: Route[] = [
-  { path: 'overview', label: 'Overview', page: Overview },
+  { path: 'overview', label: 'Live Workspace', page: Overview },
   { path: 'integrity', label: 'Integrity Check', page: Integrity },
   { path: 'explore', label: 'Explore Roads', page: Explorer },
   { path: 'route', label: 'Find Route', page: FindRoute },
@@ -41,7 +41,7 @@ export function App() {
   const route = ROUTES.find((r) => r.path === path) ?? ROUTES[0];
   const Page = route.page;
 
-  useEffect(() => { document.title = `${route.label} · Silent Shield`; setNavOpen(false); }, [route]);
+  useEffect(() => { document.title = `${route.label} · Nexus Resilience`; setNavOpen(false); }, [route]);
 
   const roads = provenance?.sources.find((s) => s.id === 'roads');
   return (
@@ -50,7 +50,7 @@ export function App() {
       <aside className={`sidebar ${navOpen ? 'open' : ''}`}>
         <div className="brand">
           <div className="logo" aria-hidden>S</div>
-          <div><div className="brand-name">NEXUS</div><div className="brand-sub">Resilience: Silent Shield</div></div>
+          <div><div className="brand-name">NEXUS</div><div className="brand-sub">Resilience · Mumbai</div></div>
         </div>
         <nav aria-label="Main">
           {ROUTES.map((r) => (
@@ -61,7 +61,7 @@ export function App() {
         <div className="sidebar-foot">
           <div>Map data © OpenStreetMap contributors (ODbL)</div>
           {roads?.retrievedAt && <div className="muted">Road snapshot {roads.retrievedAt.slice(0, 10)}</div>}
-          <div className="muted">Student prototype · live traffic unavailable</div>
+          <div className="muted">Live sources + grounded AI · no live traffic</div>
         </div>
       </aside>
       <div className="main-col">
