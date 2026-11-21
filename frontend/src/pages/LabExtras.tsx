@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../lib/api';
 import { useRequest } from '../lib/state';
-import type { BenchmarkReport, SelfCheckReport } from '../lib/types';
+import type { BenchmarkReport, BloomLabResponse, SelfCheckReport } from '../lib/types';
 import { CompareBars } from '../components/Charts';
 import { Badge, Button, Card, ErrorBox, Field, List, fmt } from '../components/ui';
 
@@ -89,6 +89,35 @@ export function SelfCheckPanel() {
           <p>{check.data.allPassed ? <Badge tone="good">all checks passed</Badge> : <Badge tone="bad">a check failed</Badge>} <span className="muted small">seed {check.data.seed}</span></p>
           <table className="table small"><thead><tr><th>Algorithm</th><th>Property</th><th className="num">Cases</th><th>Result</th></tr></thead>
             <tbody>{check.data.checks.map((c) => <tr key={c.algorithm}><td>{c.algorithm}</td><td>{c.property}</td><td className="num">{fmt(c.cases)}</td><td>{c.passed ? <Badge tone="good">pass</Badge> : <Badge tone="bad">{c.detail}</Badge>}</td></tr>)}</tbody></table>
+        </>
+      )}
+    </Card>
+  );
+}
+
+/** Bloom filter on user-typed SAMPLE identifiers; every "possibly present" answer is checked against a HashSet. */
+export function BloomLab() {
+  const [ins, setIns] = useState('W101, W202, W303, W404, W505, W606, W707, W808');
+  const [qs, setQs] = useState('W101, W202, W999, W123, X1');
+  const [fpr, setFpr] = useState(0.05);
+  const req = useRequest<BloomLabResponse>();
+  const split = (t: string) => t.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
+  const r = req.data;
+  return (
+    <Card title="Bloom filter: known-identifier screening (sample data)">
+      <Field label="Known identifiers to insert (sample)"><textarea rows={2} value={ins} onChange={(e) => setIns(e.target.value)} /></Field>
+      <Field label="Identifiers to check"><textarea rows={2} value={qs} onChange={(e) => setQs(e.target.value)} /></Field>
+      <Field label="Target false-positive rate"><input type="number" step={0.01} min={0.001} max={0.5} value={fpr} onChange={(e) => setFpr(Number(e.target.value))} /></Field>
+      <Button busy={req.busy} onClick={() => void req.run(() => api.lab<BloomLabResponse>('bloom', { inserted: split(ins), queries: split(qs), falsePositiveRate: fpr, probes: 2000 }))}>Run</Button>
+      <ErrorBox error={req.error} />
+      {r && (
+        <>
+          <p className="small">{fmt(r.bits)} bits, {r.hashes} hash functions, {r.inserted} inserted. Theoretical false-positive rate {fmt(100 * r.theoreticalFpr, 2)}%;
+            measured on {r.probes} identifiers that were never inserted: {r.probeFalsePositives} false positives ({fmt(100 * r.measuredFpr, 2)}%).</p>
+          <table className="table small"><thead><tr><th>Identifier</th><th>Bloom filter</th><th>Exact HashSet</th><th>Verdict</th></tr></thead>
+            <tbody>{r.results.map((x) => <tr key={x.id}><td>{x.id}</td><td>{x.bloom}</td><td>{x.exactPresent ? 'present' : 'absent'}</td>
+              <td>{x.verdict.includes('FALSE') ? <Badge tone="warn">{x.verdict}</Badge> : x.verdict}</td></tr>)}</tbody></table>
+          <p className="small muted">{r.note}</p>
         </>
       )}
     </Card>

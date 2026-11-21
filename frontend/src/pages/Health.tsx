@@ -3,11 +3,11 @@ import { api } from '../lib/api';
 import { PRESET_AREAS, useAppState, useRequest } from '../lib/state';
 import type { ComponentsResponse, EventListResponse, EventStatsResponse, RefreshResponse, Segment } from '../lib/types';
 import { MumbaiMap, type Marker, type SegStyle } from '../components/MumbaiMap';
-import { Badge, Button, Card, Complexity, ErrorBox, Field, List, Metric, Notice, PageHeader, fmt } from '../components/ui';
+import { Badge, Button, Card, Complexity, DataBadge, ErrorBox, Explain, Field, List, Metric, Notice, PageHeader, fmt } from '../components/ui';
 
 const PALETTE = ['#2563eb', '#ea580c', '#16a34a', '#9333ea', '#db2777', '#0891b2', '#ca8a04', '#4f46e5'];
 
-export function Health() {
+export function Connectivity() {
   const { network, provenance, reload } = useAppState();
   const [areaId, setAreaId] = useState(PRESET_AREAS[0].id);
   const area = PRESET_AREAS.find((p) => p.id === areaId)!.area;
@@ -38,8 +38,8 @@ export function Health() {
 
   return (
     <>
-      <PageHeader kicker="Network Health" title="Connectivity, map-issue records and data gaps">
-        Connected components come from a disjoint-set union over the selected area. Event records are real OpenStreetMap map notes
+      <PageHeader kicker="Network Connectivity" title="Which parts of the road network are connected?">
+        Connected components come from a disjoint-set union (DSU) over the selected area. DSU measures <b>weak</b> connectivity (ignoring one-way rules); directed reachability and practical vehicle access are different questions. Click roads to remove them: DSU cannot delete, so it is rebuilt. Event records are real OpenStreetMap map notes
         (community-reported map issues). They are <b>not</b> traffic incidents.
       </PageHeader>
       <div className="grid-main">
@@ -64,12 +64,12 @@ export function Health() {
                 <Metric label="Unions (merged / redundant)" value={`${comps.data.after.successfulUnions} / ${comps.data.after.redundantUnions}`} />
               </div>
             )}
-            {comps.data && <List items={comps.data.notes} />}
+            {comps.data && <Explain e={comps.data.explanation} />}
             <Complexity time="O((V + E) α(V)) per rebuild" space="O(V)" />
           </Card>
           <Card title="Data gaps">
             <Notice tone="warn"><b>Travel-time trends: not available.</b> No verified historical or live travel-time feed for Mumbai is connected, so no trend is shown. Route times are free-flow estimates only.</Notice>
-            <p className="small"><Badge tone={events?.category === 'VERIFIED_LIVE' ? 'good' : 'info'}>{events?.category.replace('_', ' ')}</Badge> {events?.name}: {events?.freshness}</p>
+            <p className="small">{events && <DataBadge c={events.dataClass} />} {events?.name}: {events?.freshness}</p>
             <div className="row"><Button variant="ghost" busy={refresh.busy} onClick={() => void refresh.run(async () => { const r = await api.refreshEvents(); await reload(); return r; })}>Import latest notes from OSM (live)</Button></div>
             <ErrorBox error={refresh.error} />
             {refresh.data && <Notice tone={refresh.data.status === 'OK' ? 'ok' : 'warn'}><b>{refresh.data.status}</b>: {refresh.data.message}

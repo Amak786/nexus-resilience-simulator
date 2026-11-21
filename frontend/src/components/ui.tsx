@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { ApiError } from '../lib/api';
+import type { DataClass, Explanation } from '../lib/types';
 
 export const fmt = (n: number | null | undefined, digits = 0) =>
   n === null || n === undefined || Number.isNaN(n)
@@ -103,11 +104,28 @@ export function List({ items }: { items: string[] }) {
   return <ul className="plain-list">{items.map((s, i) => <li key={i}>{s}</li>)}</ul>;
 }
 
-export function SyntheticBanner() {
+const CLASS_LABEL: Record<DataClass, [string, 'good' | 'info' | 'neutral' | 'warn' | 'bad']> = {
+  REAL_MAPPED: ['A · Real mapped', 'info'], VERIFIED_OBSERVATION: ['B · Verified observation', 'good'],
+  DERIVED_RESULT: ['C · Derived result', 'neutral'], ESTIMATE: ['D · Estimate / assumption', 'warn'],
+  SAMPLE: ['E · Sample / demo', 'warn'], NOT_AVAILABLE: ['Not available', 'bad'],
+};
+
+export function DataBadge({ c }: { c: DataClass }) {
+  const [label, tone] = CLASS_LABEL[c] ?? [c, 'neutral'];
+  return <Badge tone={tone}>{label}</Badge>;
+}
+
+/** The three questions every result answers. */
+export function Explain({ e }: { e: Explanation | null | undefined }) {
+  if (!e) return null;
   return (
-    <div className="synthetic-banner" role="note">
-      <b>Synthetic demo data.</b> Varunapuri is a fictional city. Every result is decision support for an academic
-      project, not an official instruction.
+    <div className="explain">
+      <div><b>What data was used?</b><ul className="plain-list">{e.dataUsed.map((d, i) => <li key={i}><DataBadge c={d.dataClass} /> {d.item}</li>)}</ul></div>
+      <div><b>What did the algorithm calculate?</b><p className="small">{e.calculated}</p></div>
+      <div className="two-col">
+        <div><b>Can conclude</b><List items={e.canConclude} /></div>
+        <div><b>Cannot conclude</b><List items={e.cannotConclude} /></div>
+      </div>
     </div>
   );
 }

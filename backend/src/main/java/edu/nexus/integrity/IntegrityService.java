@@ -258,7 +258,8 @@ public class IntegrityService {
         for (long id : all) {
             WayInfo b = baseWays.get(id);
             WayInfo a = updWays.get(id);
-            if (b == null || a == null || !b.fingerprint().equals(a.fingerprint()) || !b.name().equals(a.name())) {
+            if (b == null || a == null || b.oneWay() != a.oneWay() || !b.roadClass().equals(a.roadClass())
+                    || Math.abs(b.lengthM() - a.lengthM()) > 10 || !b.name().equals(a.name()) || !sameDirection(base, upd, id)) {
                 pending.add(new long[] {id});
             }
         }
@@ -293,9 +294,6 @@ public class IntegrityService {
                 }
                 if (!b.name().equals(a.name())) {
                     kinds.add("NAME_CHANGED");
-                }
-                if (kinds.isEmpty()) {
-                    kinds.add("ATTRIBUTE_CHANGED");
                 }
                 disconnected = 0;
             }

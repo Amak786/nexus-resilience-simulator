@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { useAppState, useRequest } from '../lib/state';
 import type { TourResponse } from '../lib/types';
 import { MumbaiMap, defaultStyle, type Marker, type Overlay } from '../components/MumbaiMap';
-import { Badge, Button, Card, Complexity, ErrorBox, List, Metric, Notice, PageHeader, fmt } from '../components/ui';
+import { Badge, Button, Card, Complexity, ErrorBox, Explain, List, Metric, Notice, PageHeader, fmt } from '../components/ui';
 
 export function Planner() {
   const { network } = useAppState();
@@ -21,9 +21,9 @@ export function Planner() {
   if (!network) return null;
   return (
     <>
-      <PageHeader kicker="Multi-stop Planner" title="Inspection tour over real road distances">
+      <PageHeader kicker="Multi-stop Planner" title="Visit several real locations in a good order">
         Click the map to add up to 15 stops (the first is the start). NEXUS computes shortest road distances with Dijkstra, builds a metric
-        planning matrix and returns an MST-preorder tour that is at most twice the optimal planning length.
+        planning matrix and returns an MST-preorder tour that is at most twice the optimal planning length. It is a planning order, not live traffic-optimised navigation.
       </PageHeader>
       <div className="grid-main">
         <Card>
@@ -55,6 +55,7 @@ export function Planner() {
               <ol className="small">{r.legs.map((l, i) => <li key={i}><b>{l.from}</b> → <b>{l.to}</b>: planned {fmt(l.plannedKm, 2)} km, drive {fmt(l.executableKm, 2)} km</li>)}</ol>
               <p className="small"><Badge tone="info">guarantee</Badge> {r.guarantee}</p>
               <List items={r.assumptions} />
+              <Explain e={r.explanation} />
             </Card>
           )}
         </div>

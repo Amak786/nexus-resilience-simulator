@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "NEXUS - Infrastructure Failure & Resilience Simulator (React + TypeScript front end)",
+  "description": "Nexus Resilience: Silent Shield - Mumbai road-network integrity and resilience (React + TypeScript front end)",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

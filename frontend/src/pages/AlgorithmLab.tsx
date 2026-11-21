@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useRequest } from '../lib/state';
 import type { AlgorithmInfo, MatrixRouteResponse, NodeView, RunStats, TraceStep } from '../lib/types';
-import { BenchmarksPanel, FibHeapLab, SelfCheckPanel } from './LabExtras';
+import { BenchmarksPanel, BloomLab, FibHeapLab, SelfCheckPanel } from './LabExtras';
 import { TreeView } from '../components/TreeView';
 import { Badge, Button, Card, Complexity, ErrorBox, Field, List, PageHeader, fmt } from '../components/ui';
 
-type Tab = 'catalog' | 'flow' | 'fibheap' | 'dsu' | 'rbtree' | 'segtree' | 'quickselect' | 'tsp' | 'bench' | 'check';
+type Tab = 'catalog' | 'flow' | 'fibheap' | 'dsu' | 'rbtree' | 'segtree' | 'quickselect' | 'tsp' | 'bench' | 'check' | 'bloom' | 'notes';
 const TABS: { id: Tab; label: string; algo: string }[] = [
   { id: 'catalog', label: 'All algorithms', algo: '' },
   { id: 'flow', label: 'Max flow', algo: 'edmonds-karp' },
@@ -15,6 +15,8 @@ const TABS: { id: Tab; label: string; algo: string }[] = [
   { id: 'rbtree', label: 'Red-black tree', algo: 'red-black-tree' },
   { id: 'segtree', label: 'Segment tree', algo: 'segment-tree' },
   { id: 'quickselect', label: 'Quickselect', algo: 'quickselect' },
+  { id: 'bloom', label: 'Bloom filter', algo: 'bloom-filter' },
+  { id: 'notes', label: 'OSM notes (RB tree, segment tree)', algo: '' },
   { id: 'tsp', label: 'Metric TSP', algo: 'metric-tsp' },
   { id: 'bench', label: 'Benchmarks', algo: '' },
   { id: 'check', label: 'Self-check & tests', algo: '' },
@@ -59,6 +61,10 @@ export function AlgorithmLab() {
       {tab === 'segtree' && <SegLab />}
       {tab === 'quickselect' && <SelectLab />}
       {tab === 'tsp' && <TspLab />}
+      {tab === 'bloom' && <BloomLab />}
+      {tab === 'notes' && <Card title="Real OSM map notes"><p className="small">The red-black tree index (keyed by creation time and note id), the segment tree over daily counts,
+        Quickselect resolution percentiles and the Bloom-filter import check run on the real OpenStreetMap notes. They are on the
+        <a href="#/connectivity"> Network Connectivity</a> page, below the map. Map notes are community map-issue reports, not traffic incidents.</p></Card>}
     </>
   );
 }
