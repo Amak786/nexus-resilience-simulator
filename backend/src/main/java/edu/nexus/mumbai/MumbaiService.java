@@ -66,7 +66,7 @@ import java.util.TreeSet;
 @Service
 public class MumbaiService {
 
-    public static final String PRODUCT = "NEXUS - Mumbai Road Network Intelligence";
+    public static final String PRODUCT = "Nexus Resilience: Silent Shield - Mumbai road-network integrity and resilience";
     /** Study area of the snapshot (Greater Mumbai). */
     public static final Area STUDY_AREA = new Area(18.89, 72.77, 19.29, 72.99);
     public static final String LIVE_TRAFFIC_STATUS = "Live traffic unavailable. No free, documented, terms-verified traffic or "

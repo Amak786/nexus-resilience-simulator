@@ -43,7 +43,7 @@ public class WebConfig implements WebMvcConfigurer {
     @Bean
     public OpenAPI nexusOpenApi() {
         return new OpenAPI().info(new Info()
-                .title("NEXUS API - Mumbai Road Network Intelligence")
+                .title("Nexus Resilience: Silent Shield API - Mumbai road-network integrity and resilience")
                 .version("1.0.0")
                 .description("Real OpenStreetMap road network of Greater Mumbai with hand-written Java algorithms: Dijkstra with a Fibonacci heap, "
                         + "Edmonds-Karp / Ford-Fulkerson with min cut, DSU, red-black tree, Bloom filter, segment tree, randomized Quickselect and "

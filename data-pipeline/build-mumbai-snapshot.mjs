@@ -104,88 +104,115 @@ const parseSpeed = (v) => {
 };
 const parseInt0 = (v) => (v && /^\d+$/.test(String(v).trim()) ? Number(v) : -1);
 
-const ways = overpass.elements.filter((e) => e.type === 'way' && e.geometry && e.nodes && e.nodes.length >= 2);
-const use = new Map();
-for (const w of ways) {
-  w.nodes.forEach((n, i) => {
-    const endpoint = i === 0 || i === w.nodes.length - 1;
-    use.set(n, (use.get(n) ?? 0) + (endpoint ? 2 : 1));
-  });
-}
-const isGraphNode = (n) => (use.get(n) ?? 0) >= 2; // shared by two ways, or a way endpoint
-
-const nodeIndex = new Map();
-const nodes = { osmId: [], lat: [], lon: [] };
-const addNode = (osmId, ll) => {
-  if (!nodeIndex.has(osmId)) {
-    nodeIndex.set(osmId, nodes.osmId.length);
-    nodes.osmId.push(osmId);
-    nodes.lat.push(Number(ll[0].toFixed(6)));
-    nodes.lon.push(Number(ll[1].toFixed(6)));
+function buildRoads(overpass, meta) {
+  const ways = overpass.elements.filter((e) => e.type === 'way' && e.geometry && e.nodes && e.nodes.length >= 2);
+  const use = new Map();
+  for (const w of ways) {
+    w.nodes.forEach((n, i) => {
+      const endpoint = i === 0 || i === w.nodes.length - 1;
+      use.set(n, (use.get(n) ?? 0) + (endpoint ? 2 : 1));
+    });
   }
-  return nodeIndex.get(osmId);
-};
-const names = [''];
-const nameIdx = new Map([['', 0]]);
-const edges = { u: [], v: [], way: [], lengthM: [], oneway: [], cls: [], lanes: [], maxspeed: [], name: [], geom: [] };
+  const isGraphNode = (n) => (use.get(n) ?? 0) >= 2; // shared by two ways, or a way endpoint
 
-for (const w of ways) {
-  const t = w.tags ?? {};
-  const cls = CLASSES.indexOf(t.highway);
-  let pts = w.geometry.map((g) => [g.lat, g.lon]);
-  let ids = [...w.nodes];
-  let oneway = 0;
-  const ow = (t.oneway ?? '').toLowerCase();
-  if (ow === 'yes' || ow === 'true' || ow === '1' || t.junction === 'roundabout' || (t.highway === 'motorway' && ow !== 'no')) oneway = 1;
-  if (ow === '-1' || ow === 'reverse') { oneway = 1; pts = pts.reverse(); ids = ids.reverse(); }
-  const name = t.name ?? t.ref ?? '';
-  if (!nameIdx.has(name)) { nameIdx.set(name, names.length); names.push(name); }
-  let start = 0;
-  for (let i = 1; i < ids.length; i++) {
-    if (!isGraphNode(ids[i]) && i !== ids.length - 1) continue;
-    const seg = pts.slice(start, i + 1);
-    let len = 0;
-    for (let k = 1; k < seg.length; k++) len += haversine(seg[k - 1], seg[k]);
-    if (len >= 0.5) { // skip zero-length duplicates
-      edges.u.push(addNode(ids[start], seg[0]));
-      edges.v.push(addNode(ids[i], seg[seg.length - 1]));
-      edges.way.push(w.id);
-      edges.lengthM.push(Math.round(len * 10) / 10);
-      edges.oneway.push(oneway);
-      edges.cls.push(cls);
-      edges.lanes.push(parseInt0(t.lanes));
-      edges.maxspeed.push(parseSpeed(t.maxspeed));
-      edges.name.push(nameIdx.get(name));
-      edges.geom.push(simplify(seg, 0.00004).flatMap((p) => [Number(p[0].toFixed(5)), Number(p[1].toFixed(5))]));
+  const nodeIndex = new Map();
+  const nodes = { osmId: [], lat: [], lon: [] };
+  const addNode = (osmId, ll) => {
+    if (!nodeIndex.has(osmId)) {
+      nodeIndex.set(osmId, nodes.osmId.length);
+      nodes.osmId.push(osmId);
+      nodes.lat.push(Number(ll[0].toFixed(6)));
+      nodes.lon.push(Number(ll[1].toFixed(6)));
     }
-    start = i;
+    return nodeIndex.get(osmId);
+  };
+  const names = [''];
+  const nameIdx = new Map([['', 0]]);
+  const edges = { u: [], v: [], way: [], lengthM: [], oneway: [], cls: [], lanes: [], maxspeed: [], name: [], geom: [] };
+
+  for (const w of ways) {
+    const t = w.tags ?? {};
+    const cls = CLASSES.indexOf(t.highway);
+    let pts = w.geometry.map((g) => [g.lat, g.lon]);
+    let ids = [...w.nodes];
+    let oneway = 0;
+    const ow = (t.oneway ?? '').toLowerCase();
+    if (ow === 'yes' || ow === 'true' || ow === '1' || t.junction === 'roundabout' || (t.highway === 'motorway' && ow !== 'no')) oneway = 1;
+    if (ow === '-1' || ow === 'reverse') { oneway = 1; pts = pts.reverse(); ids = ids.reverse(); }
+    const name = t.name ?? t.ref ?? '';
+    if (!nameIdx.has(name)) { nameIdx.set(name, names.length); names.push(name); }
+    let start = 0;
+    for (let i = 1; i < ids.length; i++) {
+      if (!isGraphNode(ids[i]) && i !== ids.length - 1) continue;
+      const seg = pts.slice(start, i + 1);
+      let len = 0;
+      for (let k = 1; k < seg.length; k++) len += haversine(seg[k - 1], seg[k]);
+      if (len >= 0.5) { // skip zero-length duplicates
+        edges.u.push(addNode(ids[start], seg[0]));
+        edges.v.push(addNode(ids[i], seg[seg.length - 1]));
+        edges.way.push(w.id);
+        edges.lengthM.push(Math.round(len * 10) / 10);
+        edges.oneway.push(oneway);
+        edges.cls.push(cls);
+        edges.lanes.push(parseInt0(t.lanes));
+        edges.maxspeed.push(parseSpeed(t.maxspeed));
+        edges.name.push(nameIdx.get(name));
+        edges.geom.push(simplify(seg, 0.00004).flatMap((p) => [Number(p[0].toFixed(5)), Number(p[1].toFixed(5))]));
+      }
+      start = i;
+    }
   }
+
+  return {
+    provenance: {
+      dataset: 'Mumbai arterial road network',
+      category: 'STATIC_GEOGRAPHIC',
+      source: 'OpenStreetMap via Overpass API',
+      sourceUrl: 'https://overpass-api.de/api/interpreter',
+      licence: 'ODbL 1.0 - (c) OpenStreetMap contributors - https://www.openstreetmap.org/copyright',
+      query: meta.query,
+      osmDataTimestamp: meta.osmDate ?? overpass.osm3s?.timestamp_osm_base ?? null,
+      retrievedAt: overpass.__retrievedAt ?? null,
+      snapshotRole: meta.role,
+      coverage: { ...BBOX, description: 'Greater Mumbai bounding box; road classes motorway to tertiary (with links)' },
+      notes: 'Nodes are intersections and way endpoints; edges are road segments between them. Residential and service roads are excluded to keep the graph explainable.',
+    },
+    assumptions: {
+      travelTime: 'DERIVED_ESTIMATE: length / speed, where speed is the OSM maxspeed tag when present, otherwise the class default free-flow speed. Not live traffic.',
+      capacity: 'MODELLED_PROXY: lanes per direction (OSM lanes tag, halved for two-way roads, else class default) x per-lane capacity by class (vehicles/hour). Not measured throughput.',
+      classDefaults: CLASS_DEFAULTS,
+    },
+    classes: CLASSES,
+    names,
+    nodes,
+    edges,
+  };
 }
 
-const roads = {
-  provenance: {
-    dataset: 'Mumbai arterial road network',
-    category: 'STATIC_GEOGRAPHIC',
-    source: 'OpenStreetMap via Overpass API',
-    sourceUrl: 'https://overpass-api.de/api/interpreter',
-    licence: 'ODbL 1.0 - (c) OpenStreetMap contributors - https://www.openstreetmap.org/copyright',
-    query: OVERPASS_QUERY,
-    osmDataTimestamp: overpass.osm3s?.timestamp_osm_base ?? null,
-    retrievedAt: overpass.__retrievedAt ?? null,
-    coverage: { ...BBOX, description: 'Greater Mumbai bounding box; road classes motorway to tertiary (with links)' },
-    notes: 'Nodes are intersections and way endpoints; edges are road segments between them. Residential and service roads are excluded to keep the graph explainable.',
-  },
-  assumptions: {
-    travelTime: 'DERIVED_ESTIMATE: length / speed, where speed is the OSM maxspeed tag when present, otherwise the class default free-flow speed. Not live traffic.',
-    capacity: 'MODELLED_PROXY: lanes per direction (OSM lanes tag, halved for two-way roads, else class default) x per-lane capacity by class (vehicles/hour). Not measured throughput.',
-    classDefaults: CLASS_DEFAULTS,
-  },
-  classes: CLASSES,
-  names,
-  nodes,
-  edges,
-};
+const roads = buildRoads(overpass, { query: OVERPASS_QUERY, role: 'UPDATED (current OSM state)' });
 fs.writeFileSync(path.join(OUT, 'roads.json'), JSON.stringify(roads));
+
+
+// ------------------------------------------------------------------ trusted baseline (OSM history, "attic" query)
+// The same query evaluated against the OSM database as it was on BASELINE_DATE. Comparing it with the
+// current snapshot reveals real, publicly recorded map edits (it does NOT reveal who is trustworthy).
+export const BASELINE_DATE = '2025-11-20T00:00:00Z';
+export const BASELINE_QUERY = `[out:json][timeout:300][date:"${BASELINE_DATE}"];
+way["highway"~"^(${CLASSES.join('|')})$"](${BBOX.south},${BBOX.west},${BBOX.north},${BBOX.east});
+out body geom;`;
+const baselineRaw = await cached('overpass-roads-baseline.json', async () => {
+  const r = await fetch('https://overpass-api.de/api/interpreter', {
+    method: 'POST', headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'data=' + encodeURIComponent(BASELINE_QUERY),
+  });
+  if (!r.ok) throw new Error('Overpass (baseline) HTTP ' + r.status);
+  const j = await r.json();
+  j.__retrievedAt = new Date().toISOString();
+  return j;
+});
+const baseline = buildRoads(baselineRaw, { query: BASELINE_QUERY, role: 'TRUSTED BASELINE (OSM state on ' + BASELINE_DATE + ')', osmDate: BASELINE_DATE });
+fs.writeFileSync(path.join(OUT, 'roads-baseline.json'), JSON.stringify(baseline));
+console.log(JSON.stringify({ baselineWays: baselineRaw.elements.length, baselineNodes: baseline.nodes.osmId.length, baselineEdges: baseline.edges.u.length }));
 
 // ------------------------------------------------------------------ OSM notes (map-issue reports)
 const clean = (s) => (s ?? '').replace(/\s+/g, ' ').trim().slice(0, 240);
@@ -217,5 +244,5 @@ fs.writeFileSync(path.join(OUT, 'notes.json'), JSON.stringify({
   records: notes,
 }));
 
-console.log(JSON.stringify({ ways: ways.length, nodes: nodes.osmId.length, edges: edges.u.length, names: names.length, notes: notes.length,
+console.log(JSON.stringify({ ways: overpass.elements.length, nodes: roads.nodes.osmId.length, edges: roads.edges.u.length, names: roads.names.length, notes: notes.length,
   roadsBytes: fs.statSync(path.join(OUT, 'roads.json')).size, notesBytes: fs.statSync(path.join(OUT, 'notes.json')).size }));

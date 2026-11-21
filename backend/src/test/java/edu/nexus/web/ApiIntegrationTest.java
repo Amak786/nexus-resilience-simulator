@@ -55,6 +55,12 @@ class ApiIntegrationTest {
         mvc.perform(post("/api/mumbai/tour").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"stops\":[{\"label\":\"A\",\"lat\":19.018,\"lon\":72.847},{\"label\":\"B\",\"lat\":19.043,\"lon\":72.864},{\"label\":\"C\",\"lat\":19.041,\"lon\":72.841}],\"startIndex\":0}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.tour[0]").value("A"));
+        mvc.perform(post("/api/integrity/analyse").contentType(MediaType.APPLICATION_JSON)
+                        .content("{" + AREA + ",\"fromLat\":19.018,\"fromLon\":72.847,\"toLat\":19.056,\"toLon\":72.845}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.statusCounts.verifiedMalicious").value(0))
+                .andExpect(jsonPath("$.baseline.flow.maxFlowEqualsMinCut").value(true));
+        mvc.perform(get("/api/integrity/scenario?south=19.01&west=72.83&north=19.06&east=72.87&fromLat=19.018&fromLon=72.847&toLat=19.056&toLon=72.845"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.modifications.length()").value(3));
         mvc.perform(post("/api/selfcheck")).andExpect(status().isOk()).andExpect(jsonPath("$.allPassed").value(true));
     }
 
