@@ -1,142 +1,112 @@
-# NEXUS: Mumbai Network Intelligence. Technical Report
+# Technical report: Nexus Resilience - Silent Shield
 
-Advanced Algorithms · CIA 3 · Semester V · 2026-27
-**Team:** _names, IDs and individual contributions to be filled in truthfully (section 10)._
+## 1. Overview
 
-## 1. Problem definition
+Silent Shield checks the integrity of a road-network dataset. It compares a trusted baseline snapshot of Mumbai's arterial roads
+with an updated snapshot, finds structural differences, measures their effect on connectivity and routes, and ranks them for review.
+The rest of the application (route finding, connectivity, critical links, multi-stop planning, Algorithm Lab) uses the same real graph.
 
-Planners, students and city-watchers in Mumbai often ask graph questions about the road network: which areas are connected
-only through a few links, which roads limit movement between two places, what is the shortest or fastest arterial route,
-and how should a multi-stop inspection be ordered. NEXUS answers these on the **real mapped network** (OpenStreetMap), with
-transparent data provenance, and also indexes and analyses real community-reported map issues (OSM notes).
+## 2. Architecture
 
-**Non-goals.** No live traffic (no verified free feed exists), no measured capacities, no disaster-impact prediction, no
-official use.
-
-**Inputs.** A Greater Mumbai snapshot (bbox 18.89-19.29°N, 72.77-72.99°E): 12,397 OSM ways (motorway to tertiary) →
-12,907 nodes, 18,169 segments; 2,567 OSM notes. User inputs: map clicks (snapped to the nearest intersection within 3 km),
-preset areas, removed segments, date ranges, algorithm-lab inputs.
-**Limits.** ≤ 20,000 segments per map request, ≤ 6,000 per flow analysis, ≤ 15 tour stops, ≤ 500 removed segments,
-2 MiB request bodies. Invalid inputs return HTTP 400 with the field name.
-
-## 2. Data and graph model
-
-* **Pipeline** (`data-pipeline/build-mumbai-snapshot.mjs`): one documented Overpass query, one Notes API call, cached raw
-  responses, reproducible offline rebuild. Provenance (source URL, licence, query, OSM data timestamp, retrieval time,
-  coverage) is stored in each snapshot and served by `GET /api/mumbai/provenance`.
-* **Nodes** = OSM nodes used by ≥ 2 selected ways, or way endpoints. **Segments** = way pieces between consecutive nodes
-  (geometry simplified with Douglas-Peucker, ε ≈ 4 m; length from the full geometry by haversine).
-* **Direction:** `oneway=yes/true/1`, roundabouts and motorways give one arc; `oneway=-1` reverses; otherwise two arcs.
-* **Three separate per-segment fields:** `lengthM` (static), `travelTimeS` = length / speed with speed from `maxspeed` or
-  class default (derived estimate), `capacityVph` = lanes per direction × per-lane capacity (modelled proxy; documented
-  defaults, e.g. primary: 50 km/h, 2 lanes, 1,600 veh/h/lane).
-* **Representation:** CSR adjacency (`RoadGraph`), O(V + E) space.
-
-## 3. Algorithms (pseudocode, correctness, complexity)
-
-### 3.1 Dijkstra with a Fibonacci heap (`algorithms/graph/Dijkstra`, `algorithms/heap/FibonacciHeap`)
 ```
-dist[s]=0; Q.insert(s,0)
-while Q not empty: u = Q.extractMin(); if u == target: stop
-  for arc (u,v,w): if dist[u]+w < dist[v]: dist[v]=dist[u]+w; prev[v]=arc; Q.decreaseKey(v) or Q.insert(v)
+data-pipeline/build-mumbai-snapshot.mjs   Overpass (current + 2025-11-20 attic query), OSM Notes API
+        │  roads.json, roads-baseline.json, notes.json   (committed, ODbL)
+        ▼
+backend (Spring Boot, Java 21)
+  algorithms/   bloom, dsu, flow (FordFulkerson, EdmondsKarp, MinCut), graph (Dijkstra, RoadGraph CSR),
+                heap (FibonacciHeap), rbtree, segtree, select (RandomizedQuickselect), tsp
+  mumbai/       MumbaiNetwork (snapshot loader), MumbaiService (route, components, critical links, search),
+                EventService (OSM notes), TourService (metric TSP over road distances)
+  integrity/    IntegrityService + IntegrityController   (/api/integrity/*)
+  web/, service/  Algorithm Lab, benchmarks, self-check, error handling
+        ▼  JSON over HTTP
+frontend (React + TypeScript + Leaflet, OSM tiles)  - displays results only; no algorithm runs in the browser
 ```
-Correctness: with non-negative weights the extracted node's distance is final (greedy argument), so early exit is safe.
-Fibonacci heap: lazy insert O(1); extract-min removes the minimum, promotes its children and **consolidates** roots of equal
-degree (O(log n) amortized, degree ≤ log_φ n); decrease-key cuts a node violating heap order and **cascading-cuts** marked
-parents (O(1) amortized; potential = roots + 2 × marked). Dijkstra: O(E + V log V). Baseline: `PriorityQueue` with lazy
-deletion, O((V + E) log V). Each route request runs both and checks the distances agree.
 
-### 3.2 Edmonds-Karp, Ford-Fulkerson, min cut (`algorithms/flow`)
-Residual arcs are stored in pairs (`a ^ 1` is the twin); pushing f lowers `res[a]` and raises `res[a^1]`. Ford-Fulkerson
-finds any augmenting path by DFS (terminates for integer capacities: each augmentation adds ≥ 1; O(E·|f*|)). Edmonds-Karp
-uses BFS shortest paths: O(VE) augmentations, O(VE²) time. When no path remains, S = residual-reachable nodes; edges S→T
-are saturated and form a minimum cut whose capacity equals the flow (max-flow min-cut theorem). NEXUS verifies conservation
-and capacity bounds independently and asserts cut = flow on every request.
+One Docker image serves the API and the built front end on Render.
 
-### 3.3 DSU (`algorithms/dsu`)
-Union by rank + full path compression: O(α(n)) amortized. Components of an area's undirected view; removals rebuild the DSU
-(no deletions in ordinary DSU).
+## 3. Data sources
 
-### 3.4 Red-black tree (`algorithms/rbtree`)
-CLRS insert (cases 1-3) and delete (cases 1-4), sentinel nil, subtree sizes. Key = (creation epoch second, note id), which
-is unique. Range scan O(log n + k), count-in-range O(log n). `validate()` checks a black root, no red-red pair, equal black
-heights, BST order and sizes.
+| Dataset | Query | Date | Size |
+| --- | --- | --- | --- |
+| Updated snapshot | `way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"]` in bbox 18.89,72.77,19.29,72.99 | OSM timestamp 2026-11-20T16:43:50Z | 12,397 ways, 12,907 junctions, 18,169 segments |
+| Trusted baseline | Same query with `[date:"2025-11-20T00:00:00Z"]` (Overpass attic data) | 2025-11-20 | 10,184 ways, 9,837 junctions, 13,842 segments |
+| OSM map notes | Notes API, same bbox | retrieved 2026-11-20 | 2,567 notes (958 created since 2023-01-01) |
 
-### 3.5 Bloom filter (`algorithms/bloom`)
-m = ⌈−n ln p / ln²2⌉, k = round((m/n) ln 2), positions (h1 + i·h2) mod m. Used to pre-check note ids when importing the
-latest notes: "definitely absent" skips the exact lookup; every "possibly present" id is confirmed against the exact id set.
-No false negatives in this insertion-only use; false positives are counted and resolved.
+Graph construction (the same for both snapshots): a node is a way endpoint or a node shared by two ways; a segment is the piece of a way
+between two such nodes; length is the haversine length of the OSM geometry; `oneway=yes/-1`, roundabouts and motorways are directed.
+Licence: ODbL, © OpenStreetMap contributors. Usage policies respected: one query each, identifying User-Agent, cached raw files.
 
-### 3.6 Segment tree (`algorithms/segtree`)
-Sum, min and max with leftmost argmax/argmin and lazy range add; O(log n) per query/update. Applied to real notes-per-day
-counts; live imports do point updates. Every answer is cross-checked with a plain scan.
+**Why the baseline is "trusted".** It is the OSM state a year earlier, i.e. the dataset version the application previously used. Trusted
+means "the version we accept as reference", not "error-free".
 
-### 3.7 Randomized Quickselect (`algorithms/select`)
-Random pivot, 3-way partition; expected O(n), worst case O(n²). Nearest-rank P50/P90 of real resolution times; compared
-with a full sort; flagged as not meaningful below 30 observations; seeded for reproducibility.
+## 4. The integrity workflow
 
-### 3.8 Metric TSP 2-approximation (`algorithms/tsp`, `mumbai/TourService`)
-Directed road distances d by Dijkstra from each stop; stops not reachable both ways from the start are excluded and reported.
-D(i,j) = max(d(i,j), d(j,i)) is symmetric and satisfies the triangle inequality, and the matrix is validated anyway.
-Prim's MST + preorder walk gives tour ≤ 2·MST ≤ 2·OPT(D). The executable route expands each leg into its directed shortest
-path, so its length ≤ the planned length. Nearest neighbour is the baseline; Held-Karp gives the exact optimum for ≤ 10 stops.
+1. **Extract** the induced subgraph of the selected area from both snapshots (segments with both ends inside the area).
+2. **Apply demonstrations** (optional) to the updated subgraph: REMOVE_WAY, FLIP_ONEWAY, ADD_CONNECTION. They are marked DEMONSTRATION.
+3. **Compare** way by way (OSM way id). A way is changed if it is absent on one side, its class or one-way rule differs, a one-way segment
+   reverses, its length in the area differs by more than 10 m, or its name differs.
+4. **Screen** with a Bloom filter of baseline fingerprints `(way id | class | one-way | length/10 m)`; possible hits are confirmed exactly.
+5. **Measure impact** of each change with DSU: rebuild without the way and count junctions that leave the main component
+   (for an added road, the junctions it joins). Junctions touched only by that road are ignored, because they disappear with it.
+6. **Probe route**: Dijkstra (Fibonacci heap and PriorityQueue) between two probe points snapped to a junction that exists in both snapshots.
+7. **Resilience**: Edmonds-Karp and Ford-Fulkerson with capacity 1 per directed segment give the number of road-disjoint routes; the minimum
+   cut lists the fewest segments whose loss separates the probe points.
+8. **Score and classify** with the published rule (README). Threshold 5 gives SUSPICIOUS_NEEDS_REVIEW.
+9. **Rank and index**: Quickselect top-k, red-black alert index, segment tree over 16 west-to-east strips.
+10. **Plan an inspection**: metric-TSP over the top flagged changes using shortest-path road distances.
+11. **Hashes**: SHA-256 of each snapshot file and of the canonical area road list. A demonstration changes the updated hash and leaves the baseline hash alone.
 
-| Algorithm | Time | Space |
-|---|---|---|
-| Dijkstra + Fibonacci heap | O(E + V log V) amortized | O(V + E) |
-| Dijkstra + binary heap (baseline) | O((V + E) log V) | O(V + E) |
-| Edmonds-Karp | O(V E²) | O(V + E) |
-| Ford-Fulkerson (integer capacities) | O(E·\|f*\|) | O(V + E) |
-| DSU | O(α(n)) amortized | O(n) |
-| Red-black tree | O(log n); range scan O(log n + k) | O(n) |
-| Bloom filter | O(k) | m bits |
-| Segment tree | O(log n) per op | O(n) |
-| Randomized Quickselect | expected O(n) | O(1) extra |
-| MST-preorder TSP | O(n²) + O(n³) validation | O(n²) |
+Example (Dadar-Mahim-Bandra, probe 19.018,72.847 to 19.056,72.845, no demonstration): 497 real changes
+(223 added, 33 removed, 89 geometry, 21 one-way, 18 class, 28 name), 9 suspicious, 0 malicious; Bloom screening
+476 definitely new, 653 possibly known, 3 false positives (all caught by the exact check).
 
-## 4. System design
+## 5. Distinguishing legitimate, suspicious, simulated and malicious
 
-Spring Boot 3.5 (Java 21): `MumbaiController` and `ApiController` → services (`MumbaiService`, `EventService`,
-`TourService`, `LabService`, `BenchmarkService`, `SelfCheckService`) → `edu.nexus.algorithms.*` (no Spring). Central JSON
-error handling, request-size filter, CORS from environment variables, OpenAPI. React + TypeScript + Vite + Leaflet front
-end with 6 screens; one Docker image serves both on Render.
+- **Legitimate** is a human decision (button "Mark as reviewed: legitimate"), normally after checking the public OSM edit history linked from each change.
+- **Suspicious** means the change is important under the rule (major road, cuts off junctions, on the probe route, direction flipped, no public record).
+- **Simulated tampering** is anything the user typed in as a demonstration.
+- **Verified malicious** is never set by the program, because proving intent needs evidence outside the data (an incident report, account
+  forensics, a confirmed revert by the OSM Data Working Group).
 
-## 5. Testing
+## 6. Algorithm justifications
 
-76 JUnit 5 tests (`mvn verify`): Fibonacci heap (consolidation, cuts, cascading cuts, duplicates, empty heap, 20k random ops
-vs `PriorityQueue`), Dijkstra (hand-checked, one-way, unreachable, 100 random graphs vs Floyd-Warshall, early exit),
-max-flow (CLRS example, reverse-arc cancellation, disconnected, zero capacity, parallel edges, 300 random graphs with
-cut = flow), DSU, red-black tree (rotations, deletion, range scans vs `TreeMap`), Bloom filter (statistical FPR, exact-store
-handling), segment tree (vs plain array incl. min), Quickselect (vs sort, duplicates, seeds), TSP (metric rejection,
-2-approximation vs Held-Karp), Mumbai services on the real snapshot, offline Bloom import, HTTP integration (errors, 413, CORS).
+| Algorithm | Why it fits | Why not the alternative |
+| --- | --- | --- |
+| DSU | Many "are these connected / how many components" questions over the same edge list; near-linear | BFS/DFS also works but needs adjacency lists per run; DSU is simpler for counts. DSU cannot delete, so for each change it is rebuilt, and it ignores direction (weak connectivity), so directed questions use Dijkstra/BFS |
+| Dijkstra + Fibonacci heap | Non-negative lengths; the syllabus structure with O(1) amortized decrease-key | Measured slower than PriorityQueue on these sparse graphs; both are run and must agree |
+| Ford-Fulkerson / Edmonds-Karp | Max flow with unit capacities = number of edge-disjoint routes (Menger) | No measured capacities exist, so vehicle flow would be invented |
+| Min cut | Names the bottleneck segments | Only valid inside the bounded area |
+| Bloom filter | Compact "seen before?" screen of trusted fingerprints with no false negatives | Can give false positives, hence the exact HashSet check |
+| Quickselect | Top-k needs only the k-th score: expected O(n) | Sorting all changes costs O(n log n) |
+| Red-black tree | Ordered alert list with O(log n) insert and delete after review | A sorted array costs O(n) per delete |
+| Segment tree | Range sum/max of risk over strips with point updates | Prefix sums cannot be updated cheaply |
+| Metric TSP | Visiting order for an inspector; MST preorder ≤ 2 × optimal on a metric | Exact TSP is exponential; used only to check small cases |
 
-## 6. Benchmarks
+## 7. Complexity (n junctions, m segments, c changes)
 
-Method: seeded inputs generated before timing; only the algorithm call is timed; warm-up runs; median and minimum of
-repeated runs; machine-independent operation counts. Results: `docs/benchmark-results.md`. Key observations:
-* **Fibonacci heap vs PriorityQueue:** identical distances, slightly fewer heap operations, but about **2× slower** on grids
-  of 10⁴-3.6·10⁵ nodes (pointer-heavy nodes, poor cache locality). Better amortized bounds do not guarantee faster code.
-* **Edmonds-Karp vs Ford-Fulkerson:** always the same value. DFS is often faster on random graphs; EK's benefit is its
-  capacity-independent worst case.
-* **Quickselect vs sort, segment tree vs scan, DSU vs naive, red-black tree vs sorted list:** see the tables.
+Extraction O(m); diff O(m); Bloom O(m·k); impact O(c·m·α(n)); Dijkstra O(m + n log n); Edmonds-Karp O(n·m²) worst case
+(small here because max flow ≤ out-degree of the source); Quickselect expected O(c); red-black tree O(c log c); segment tree O(16 + q log 16);
+TSP O(s·(m + n log n) + s²).
 
-## 7. Limitations
+## 8. Testing (94 automated tests, all passing)
 
-No live traffic or measured capacities; arterial roads only; boundary effects in bounded areas; notes are uneven community
-reports; free-tier hosting is slow and sleeps; the min cut is a model property, not an impact prediction.
+- Algorithm unit tests (BloomFilter, DSU, Dijkstra, Fibonacci heap, max flow, metric TSP, Quickselect, red-black tree, segment tree, range queries).
+- `IntegrityServiceTest` (12): real diff has no simulated or malicious items; Bloom counts add up and every hit is verified;
+  scenario S1 is labelled and changes only the updated hash; same input gives same output and reset restores the real result;
+  review removes a change from ranking, alert index and strip risk; EK = FF = min cut and both heaps agree on both snapshots;
+  every score equals its breakdown; Quickselect top-k equals a sort oracle on random data; red-black invariants and order after deletions;
+  segment-tree ranges equal brute force for all 136 ranges; DSU cut-off equals an independent BFS; invalid input gives clear errors.
+- `MumbaiServiceTest` (15) and `ApiIntegrationTest` (5): route validity on the directed graph, closures, DSU vs BFS, critical links, search, HTTP errors, CORS, size limits.
+- `POST /api/selfcheck` reruns seeded property checks on the deployed server.
 
-## 8. Future work
+## 9. Benchmarks (summary; full tables in benchmark-results.md)
 
-Verified traffic or transit feeds where licensed (e.g. official GTFS if published), residential-road layer with contraction
-for speed, time-dependent travel times, k-shortest paths, Gomory-Hu trees for all-pairs min cuts.
+The Fibonacci heap returns identical distances but is about 2× slower than PriorityQueue (Mumbai graph: 12.2 ms vs 5.4 ms; grids up to 600×600).
+Ford-Fulkerson (DFS) is often faster than Edmonds-Karp on these graphs; Edmonds-Karp has the better worst-case bound.
+Timings in the UI are single runs and include JIT warm-up on the first request.
 
-## 9. References
+## 10. Limitations
 
-CLRS, *Introduction to Algorithms*; Fredman & Tarjan (1987); Edmonds & Karp (1972); Kirsch & Mitzenmacher (2006);
-Rosenkrantz, Stearns & Lewis (1977); OpenStreetMap wiki: Key:oneway, Key:lanes, Key:maxspeed, Overpass API, Notes API.
-
-## 10. Individual contributions
-
-| Member | ID | Contribution |
-|---|---|---|
-| | | |
+Arterial roads only; OSM is a community map, not ground truth; no live traffic or measured capacity; strips are a simple bucketing;
+the scoring weights are a transparent judgement, not a trained model; bounded areas only (≤ 6,000 segments per snapshot).

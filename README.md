@@ -1,124 +1,117 @@
-# NEXUS: Mumbai Network Intelligence
+# Nexus Resilience: Silent Shield
 
-A student prototype that analyses the **real mapped arterial road network of Greater Mumbai** (OpenStreetMap):
-connectivity, critical links, routes, multi-stop inspection tours and community map-issue records. All assessed
-algorithms are implemented from scratch in Java; the React front end only displays API results.
+Road-network **data-integrity and resilience analysis** on Mumbai's real OpenStreetMap road network.
+Advanced Algorithms (CIA 3) project. Java 21 / Spring Boot back end (all assessed algorithms hand-written), React + TypeScript front end.
 
-**Live app:** https://nexus-resilience.onrender.com · **API docs:** https://nexus-resilience.onrender.com/swagger-ui.html
-(free hosting: the first request after a quiet period can take 30-60 s while the server wakes up)
+Live: https://nexus-resilience.onrender.com (free hosting: the first request after idle can take 30-60 s).
 
-*Advanced Algorithms · CIA 3 · Semester V · 2026-27. Not an official, production or government system; it shows no live traffic.*
+## The problem in one paragraph
 
----
+Navigation, logistics and emergency-planning software trusts its road dataset. If that dataset changes - through a normal map edit,
+a mistake, or someone tampering with the data file - routes and connectivity silently change too. Silent Shield compares a
+**trusted baseline** snapshot with an **updated** snapshot, lists every changed road, measures what each change does to
+connectivity and to a probe route, and ranks the changes for a human reviewer with a documented scoring rule.
+It never claims that a change is an attack: an anomaly is only "worth checking".
 
-## What is real, what is estimated
+## What is real and what is not
 
-| Data | Category | Source |
-|---|---|---|
-| Roads, intersections, one-way rules, names, lanes/maxspeed tags (12,907 nodes, 18,169 segments, ~2,478 km) | STATIC GEOGRAPHIC | OpenStreetMap via Overpass API, snapshot dated in `backend/src/main/resources/data/mumbai/roads.json` |
-| 2,567 map notes (community-reported map issues, 2013 to the snapshot date) | LATEST AVAILABLE, or VERIFIED LIVE after an in-app import | OpenStreetMap Notes API |
-| Segment travel time = length / speed (OSM `maxspeed`, else class default) | DERIVED ESTIMATE | computed in NEXUS |
-| Segment capacity = lanes per direction x per-lane capacity by class | MODELLED PROXY | computed in NEXUS |
-| Live traffic speeds or incidents | NOT AVAILABLE | no free, documented, terms-verified Mumbai feed was found (Google/TomTom/HERE need paid keys; no official public API) |
-| Varunapuri-style toy graphs in the Algorithm Lab and tests | DEMONSTRATION | hand-made |
+| Item | Class | Source |
+| --- | --- | --- |
+| Updated road snapshot: 12,907 junctions, 18,169 segments, 12,397 ways (motorway to tertiary) | A · real mapped | OpenStreetMap via Overpass, data timestamp 2026-11-20 |
+| Trusted baseline: 9,837 junctions, 13,842 segments, 10,184 ways | A · real mapped | Same Overpass query evaluated on the OSM history as of 2025-11-20 ("attic" query) |
+| Detected changes (e.g. 497 in Dadar-Mahim-Bandra) | C · derived | Way-by-way comparison of the two snapshots |
+| OSM map notes (2,567; 958 created since 2023) | B · observation | OSM Notes API. Community map-issue reports, **not** traffic incidents |
+| Travel time (free-flow) | D · estimate | maxspeed tag (about 4 % of segments) or a class default speed |
+| Lane capacity (veh/h) | D · estimate, opt-in | lanes tag (about 20 % of segments) or a class default. **Not** measured throughput |
+| Demonstration tampering (scenario S1, user edits) | E · sample | Typed in by the user; always labelled SIMULATED_TAMPERING |
+| Live traffic | not available | No free, terms-verified Mumbai feed. A licensed provider key would be needed |
 
-Map notes are **not** traffic incidents. Capacities are **not** measured throughput. The app labels both everywhere they appear.
+Removed or relabelled during the audit: the old "3,200 veh/h max flow" (it came from the lane-capacity guess, and about 80 % of segments
+have no lanes tag), and "958 incidents" (these are map notes, not incidents). Critical links now default to the structural model
+(capacity 1 per segment, so max flow = number of road-disjoint routes).
 
-## Screens and algorithms
+## Change classification
 
-| Screen | What you do | Algorithms (Java) |
-|---|---|---|
-| Overview | Study area, graph size, data sources, freshness | - |
-| Network Explorer | Click A and B for the shortest (real length) or fastest (estimated) route; click a road to inspect its attributes | Dijkstra with a custom **Fibonacci heap**, compared on every query with `java.util.PriorityQueue` |
-| Critical Links | Pick an area, click source and sink, optionally remove roads; see the bottleneck | **Edmonds-Karp** (BFS) and **Ford-Fulkerson** (DFS) on the same graph, **max-flow / min-cut** certificate |
-| Network Health | Connected components in an area (before/after removals); map-note records, statistics, live import | **DSU**, **red-black tree** (time index), **Bloom filter** + exact id set, **segment tree** (notes per day), **randomized Quickselect** (P50/P90 time to close) |
-| Multi-stop Planner | Click up to 15 stops; get a tour and its executable road route | **Metric-TSP 2-approximation** (MST + preorder) on Dijkstra road distances |
-| Algorithm Lab & Benchmarks | Run each algorithm on your own input; benchmarks at three sizes; live self-check | all of the above |
+| Status | Meaning |
+| --- | --- |
+| ROUTINE_UNREVIEWED | Real OSM edit, score below 5 |
+| SUSPICIOUS_NEEDS_REVIEW | Real OSM edit, score 5 or more. An anomaly to check, not proof of an attack |
+| LEGITIMATE_REVIEWED | The analyst checked it (for example its public OSM history) and marked it legitimate |
+| SIMULATED_TAMPERING | A demonstration modification with no public edit record |
+| VERIFIED_MALICIOUS | Never assigned automatically: needs external evidence the tool does not have. Always 0 |
 
-## Graph model
+Scoring rule (integer points, shown per change): road class (motorway/trunk +3, primary +2, secondary/links +1),
+junctions cut off or joined by the change (DSU: 1-4 → +2, 5-19 → +4, 20+ → +6), touches the probe route (+3),
+one-way rule changed (+2 on primary or higher, else +1), no public edit record (+3).
 
-* **Nodes** are OSM nodes shared by two or more selected ways, or way endpoints. **Segments** are the road pieces between
-  consecutive nodes. Only `motorway` to `tertiary` roads (and links) are included; residential and service roads are not.
-* A two-way segment gives two directed arcs; a one-way segment (`oneway=yes/-1`, roundabouts, motorways) gives one.
-* Each segment keeps **three separate quantities**: length (m, static), travel time (s, derived), capacity (veh/h per direction, proxy).
-* Routes use the directed graph. Components use an undirected view. Flow uses directed arcs with the capacity proxy.
-  The TSP uses a symmetric planning matrix D(i, j) = max(d(i→j), d(j→i)) over directed road distances; it satisfies the
-  triangle inequality and upper-bounds travel in both directions. The executable route expands each leg into its directed shortest path.
+## Algorithms and where they are used
 
-## Architecture
+| Algorithm | Role in Silent Shield | Complexity |
+| --- | --- | --- |
+| Bloom filter | Fingerprints of trusted baseline roads; screens every updated road; "possibly known" answers are confirmed by an exact HashSet | O(k) per operation |
+| Disjoint Set Union | Components before and after; junctions cut off by each change (rebuilt without the way, because DSU cannot delete) | O(m α(n)) per rebuild |
+| Dijkstra + Fibonacci heap (vs PriorityQueue) | Probe route before and after; route search | O(m + n log n); binary heap O(m log n) |
+| Ford-Fulkerson and Edmonds-Karp | Number of road-disjoint routes between the probe points (unit capacities) | FF O(E·f), EK O(V E²) |
+| Max flow / min cut | Fewest segments whose loss separates the probe points | O(V+E) after max flow |
+| Randomized Quickselect | k-th highest score gives the top-k changes without sorting all of them; checked against a sort | expected O(n) |
+| Red-black tree | Alert index keyed by (score desc, change id); reviewed changes are deleted | O(log n) |
+| Segment tree | Risk per west-to-east strip: range sum and max, point update when a change is reviewed | O(log n) |
+| Metric-TSP (MST preorder) | Inspection order for the top flagged changes over shortest-path road distances | ≤ 2 × optimal |
 
-```mermaid
-flowchart LR
-  OSM[(OpenStreetMap<br/>Overpass + Notes API)] -- data-pipeline/build-mumbai-snapshot.mjs --> SNAP[(roads.json, notes.json<br/>with provenance)]
-  SNAP --> SVC
-  subgraph API["Spring Boot API (Java 21)"]
-    C[Controllers<br/>MumbaiController, ApiController] --> SVC[Services<br/>MumbaiService, EventService,<br/>TourService, LabService, BenchmarkService]
-    SVC --> ALG[Algorithms<br/>edu.nexus.algorithms.*]
-  end
-  UI[React + TypeScript + Leaflet<br/>OSM tiles] -- JSON --> C
-  SVC -. live import, max every 10 min .-> NOTES[OSM Notes API]
-```
+Measured: the Fibonacci heap gives identical distances but is about 2× slower than `java.util.PriorityQueue`
+(for example 12.2 ms vs 5.4 ms on the Mumbai graph). See [docs/benchmark-results.md](docs/benchmark-results.md).
+
+## Screens
+
+Overview · **Integrity Check** (main workflow) · Explore Roads · Find Route · Network Connectivity · Critical Links · Multi-Stop Planner · Algorithm Lab.
 
 ## Run locally
 
-Prerequisites: Java 21+, Maven 3.9+, Node 20+.
+Requirements: JDK 21+, Maven 3.9+, Node 20+.
 
 ```bash
-cd backend && mvn spring-boot:run            # API on http://localhost:8080
-cd frontend && npm install && npm run dev    # app on http://localhost:5173 (proxies /api)
+cd backend && mvn verify          # 94 tests, then builds target/nexus-api.jar
+java -jar target/nexus-api.jar    # API on http://localhost:8080
 ```
-
-If port 8080 is busy: `PORT=8090 mvn spring-boot:run` and `API_PROXY=http://localhost:8090 npm run dev`.
-Single container: `docker build -t nexus . && docker run -p 8080:8080 nexus`.
-
-## Refresh the data
 
 ```bash
-node data-pipeline/build-mumbai-snapshot.mjs            # fetches Overpass + OSM Notes, rebuilds the snapshot
-node data-pipeline/build-mumbai-snapshot.mjs --offline  # rebuilds from cached raw downloads
+cd frontend && npm ci && npm run dev   # UI on http://localhost:5173 (proxies /api to 8080; set API_PROXY to change)
 ```
 
-The Overpass query, study-area bounding box, class defaults and per-lane capacities are at the top of the script and are
-copied into the snapshot's provenance. The pipeline sends one request to each service with an identifying User-Agent.
+Or build one container: `docker build -t nexus . && docker run -p 8080:8080 nexus`.
 
-## Tests and benchmarks
+Rebuild the data (optional; the snapshots are committed):
 
 ```bash
-cd backend && mvn verify                                   # 76 JUnit tests
-cd frontend && npm run lint && npm run typecheck && npm run build
+node data-pipeline/build-mumbai-snapshot.mjs            # downloads current roads, the 2025-11-20 baseline and notes
+node data-pipeline/build-mumbai-snapshot.mjs --offline  # rebuild from data-pipeline/raw/
 ```
 
-Every assessed algorithm has at least five tests (edge cases, invalid input, seeded property tests against independent
-oracles: `TreeMap`, `PriorityQueue`, Floyd-Warshall, full sort, Held-Karp, plain arrays). Service tests run on the committed
-Mumbai snapshot, so they are deterministic and need no network. Benchmarks (`POST /api/benchmarks/{suite}`, or the Lab page)
-use three input sizes, warm-up, the median of repeated runs, and a baseline; recorded runs are in `docs/benchmark-results.md`.
+## Main API
 
-## Configuration
+- `POST /api/integrity/analyse`: `{area, fromLat, fromLon, toLat, toLon, demoModifications?, reviewedLegitimate?, topK?, stripFrom?, stripTo?}`
+- `GET /api/integrity/scenario?south&west&north&east&fromLat&fromLon&toLat&toLon`: reproducible demo scenario S1
+- `POST /api/mumbai/route`, `/components`, `/critical-links`, `/tour`; `GET /api/mumbai/search`, `/segments/{id}`, `/provenance`
+- `POST /api/lab/{flow,dsu,rbtree,fibheap,bloom,quickselect,segment-tree,tsp}`, `POST /api/benchmarks/{suite}`, `POST /api/selfcheck`
+- OpenAPI: `/swagger-ui.html`. More: [docs/api.md](docs/api.md)
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `PORT` | 8080 | set by Render |
-| `CORS_ALLOWED_ORIGINS` | localhost:5173 | only needed if the front end is hosted on another origin |
-| `MAX_REQUEST_BYTES` | 2097152 | request size limit |
-| `MAX_AREA_SEGMENTS` / `MAX_FLOW_SEGMENTS` | 20000 / 6000 | graph-size limits per request |
+Example:
 
-No secrets are needed. Deployment: see [docs/deployment.md](docs/deployment.md) (Render blueprint in `render.yaml`).
+```bash
+curl -X POST https://nexus-resilience.onrender.com/api/integrity/analyse -H "Content-Type: application/json" -d "{\"area\":{\"south\":19.01,\"west\":72.83,\"north\":19.06,\"east\":72.87},\"fromLat\":19.018,\"fromLon\":72.847,\"toLat\":19.056,\"toLon\":72.845}"
+```
 
 ## Limitations
 
-* No live traffic, travel-time history or measured capacities. Routes are free-flow estimates; flows are on a capacity model.
-* Arterial roads only, so some areas show small "components" that are really connected through residential streets or roads outside the selected box.
-* The min cut is a property of the capacity model; it does not predict real disruption impact.
-* Map notes are community map-maintenance reports with uneven coverage; they are not incident data.
-* The Fibonacci heap has better amortized bounds but was **slower** than `PriorityQueue` in our benchmarks (constant factors).
+- Only arterial roads (motorway to tertiary). Residential streets can provide detours that are not modelled.
+- OSM records what mappers entered, not what is on the ground today. A real edit can be wrong, and a "suspicious" one can be correct.
+- No live traffic and no measured capacities. Times and lane capacities are labelled estimates.
+- Integrity analysis runs on bounded areas (at most 6,000 segments per snapshot) to keep the algorithms fast and explainable.
+- This is a student prototype, not an official or production security tool.
 
-## Documents
+## Documentation
 
-[Proposal](docs/proposal.md) · [Technical report](docs/technical-report.md) · [API](docs/api.md) · [Deployment](docs/deployment.md) ·
-[Benchmark results](docs/benchmark-results.md) · [Demo script](docs/demo-script.md) · [Viva questions](docs/viva-questions.md)
+[Proposal](docs/proposal.md) · [Technical report](docs/technical-report.md) · [Demo script](docs/demo-script.md) ·
+[Viva questions](docs/viva-questions.md) · [API](docs/api.md) · [Deployment](docs/deployment.md) · [Benchmarks](docs/benchmark-results.md)
 
-## Credits and licence
-
-Map data © OpenStreetMap contributors, ODbL 1.0 (https://www.openstreetmap.org/copyright); base map tiles © OpenStreetMap.
-References: CLRS *Introduction to Algorithms*; Fredman & Tarjan (1987) Fibonacci heaps; Edmonds & Karp (1972);
-Kirsch & Mitzenmacher (2006); Rosenkrantz, Stearns & Lewis (1977). Code licensed MIT (see LICENSE).
+Map data © OpenStreetMap contributors, available under the Open Database Licence (ODbL).
