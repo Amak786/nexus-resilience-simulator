@@ -1,53 +1,61 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import { api, ApiError } from './api';
-import type { Area, NetworkResponse, ProvenanceResponse, Segment } from './types';
-
-/** Named analysis areas inside the study area (bounding boxes in degrees). */
-export const PRESET_AREAS: { id: string; label: string; area: Area }[] = [
-  { id: 'dadar', label: 'Dadar - Mahim - Bandra', area: { south: 19.01, west: 72.83, north: 19.06, east: 72.87 } },
-  { id: 'kurla', label: 'Kurla - Ghatkopar - Chembur', area: { south: 19.05, west: 72.87, north: 19.1, east: 72.92 } },
-  { id: 'andheri', label: 'Andheri - Jogeshwari', area: { south: 19.1, west: 72.83, north: 19.15, east: 72.88 } },
-  { id: 'fort', label: 'Colaba - Fort - Byculla', area: { south: 18.9, west: 72.81, north: 18.98, east: 72.85 } },
-  { id: 'borivali', label: 'Malad - Kandivali - Borivali', area: { south: 19.18, west: 72.83, north: 19.25, east: 72.87 } },
-];
+import { api, ApiError, auth, openStream } from './api';
+import type { SourcesResponse } from './types';
 
 interface AppState {
-  provenance: ProvenanceResponse | null;
-  network: NetworkResponse | null;
-  segmentById: Map<number, Segment>;
-  loading: boolean;
-  error: string | null;
-  reload: () => Promise<void>;
+  sources: SourcesResponse | null;
+  sourcesError: string | null;
+  viewer: boolean;
+  stream: 'off' | 'connected' | 'disconnected';
+  lastIngest: { sensorId: string; accepted: number; newFlows: number; ingestedAt: string } | null;
+  tick: number; // increments on each pushed ingest event; pages refetch when it changes
+  refreshSources: () => Promise<void>;
 }
 
 const Ctx = createContext<AppState | null>(null);
 
-/** Loads provenance and the full study-area network once; every analysis itself runs on the server. */
+/** Source status (public) plus the live event stream when a viewer token is present. */
 export function AppStateProvider({ children }: { children: ReactNode }) {
-  const [provenance, setProvenance] = useState<ProvenanceResponse | null>(null);
-  const [network, setNetwork] = useState<NetworkResponse | null>(null);
-  const [segmentById, setSegmentById] = useState<Map<number, Segment>>(new Map());
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [sources, setSources] = useState<SourcesResponse | null>(null);
+  const [sourcesError, setSourcesError] = useState<string | null>(null);
+  const [token, setToken] = useState(auth.get());
+  const [stream, setStream] = useState<'off' | 'connected' | 'disconnected'>('off');
+  const [lastIngest, setLastIngest] = useState<AppState['lastIngest']>(null);
+  const [tick, setTick] = useState(0);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const refreshSources = useCallback(async () => {
     try {
-      const [p, n] = await Promise.all([api.provenance(), api.network()]);
-      setProvenance(p);
-      setNetwork(n);
-      setSegmentById(new Map(n.items.map((s) => [s.id, s])));
+      setSources(await api.sources());
+      setSourcesError(null);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Could not load the Mumbai network.');
-    } finally {
-      setLoading(false);
+      setSourcesError(e instanceof ApiError ? e.message : 'Cannot load source status');
     }
   }, []);
 
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    const on = () => setToken(auth.get());
+    window.addEventListener('trace-auth', on);
+    return () => window.removeEventListener('trace-auth', on);
+  }, []);
 
-  return <Ctx.Provider value={{ provenance, network, segmentById, loading, error, reload }}>{children}</Ctx.Provider>;
+  useEffect(() => {
+    void refreshSources();
+    const t = setInterval(() => void refreshSources(), 30_000);
+    return () => clearInterval(t);
+  }, [refreshSources, token]);
+
+  const viewer = !!sources?.viewer;
+  useEffect(() => {
+    if (!viewer) { setStream('off'); return; }
+    let close: (() => void) | null = null;
+    let cancelled = false;
+    openStream((d) => { setLastIngest(d as AppState['lastIngest']); setTick((x) => x + 1); }, setStream)
+      .then((c) => { if (cancelled) c(); else close = c; })
+      .catch(() => setStream('disconnected'));
+    return () => { cancelled = true; close?.(); };
+  }, [viewer]);
+
+  return <Ctx.Provider value={{ sources, sourcesError, viewer, stream, lastIngest, tick, refreshSources }}>{children}</Ctx.Provider>;
 }
 
 export function useAppState(): AppState {

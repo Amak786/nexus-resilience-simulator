@@ -1,26 +1,21 @@
 import { useEffect, useState, type ComponentType } from 'react';
 import { useAppState } from './lib/state';
 import { Overview } from './pages/Overview';
-import { Integrity } from './pages/Integrity';
-import { Explorer } from './pages/Explorer';
-import { FindRoute } from './pages/FindRoute';
-import { CriticalLinks } from './pages/CriticalLinks';
-import { Connectivity } from './pages/Health';
-import { Planner } from './pages/Planner';
+import { Network } from './pages/Network';
+import { Investigations } from './pages/Investigations';
 import { AlgorithmLab } from './pages/AlgorithmLab';
-import { Button } from './components/ui';
+import { Analyst } from './pages/Analyst';
+import { DataSources } from './pages/DataSources';
 
 interface Route { path: string; label: string; page: ComponentType }
 
 const ROUTES: Route[] = [
-  { path: 'overview', label: 'Live Workspace', page: Overview },
-  { path: 'integrity', label: 'Integrity Check', page: Integrity },
-  { path: 'explore', label: 'Explore Roads', page: Explorer },
-  { path: 'route', label: 'Find Route', page: FindRoute },
-  { path: 'connectivity', label: 'Network Connectivity', page: Connectivity },
-  { path: 'critical-links', label: 'Critical Links', page: CriticalLinks },
-  { path: 'planner', label: 'Multi-Stop Planner', page: Planner },
+  { path: 'overview', label: 'Overview', page: Overview },
+  { path: 'network', label: 'Network', page: Network },
+  { path: 'investigations', label: 'Investigations', page: Investigations },
   { path: 'lab', label: 'Algorithm Lab', page: AlgorithmLab },
+  { path: 'analyst', label: 'AI Analyst', page: Analyst },
+  { path: 'sources', label: 'Data Sources', page: DataSources },
 ];
 
 function useHashPath(): string {
@@ -36,21 +31,24 @@ function useHashPath(): string {
 
 export function App() {
   const path = useHashPath();
-  const { loading, error, reload, provenance } = useAppState();
+  const { sources, viewer, stream, lastIngest } = useAppState();
   const [navOpen, setNavOpen] = useState(false);
   const route = ROUTES.find((r) => r.path === path) ?? ROUTES[0];
   const Page = route.page;
 
-  useEffect(() => { document.title = `${route.label} · Nexus Resilience`; setNavOpen(false); }, [route]);
+  useEffect(() => { document.title = `${route.label} · TRACE`; setNavOpen(false); }, [route]);
 
-  const roads = provenance?.sources.find((s) => s.id === 'roads');
+  const mode = sources?.mode ?? 'NO_SENSOR';
   return (
     <div className="shell">
       <a className="skip" href="#main">Skip to content</a>
       <aside className={`sidebar ${navOpen ? 'open' : ''}`}>
         <div className="brand">
-          <div className="logo" aria-hidden>S</div>
-          <div><div className="brand-name">NEXUS</div><div className="brand-sub">Resilience · Mumbai</div></div>
+          <svg className="logo-mark" viewBox="0 0 32 32" aria-hidden>
+            <circle cx="8" cy="9" r="3" /><circle cx="24" cy="8" r="3" /><circle cx="16" cy="23" r="3.5" />
+            <path d="M8 9 L16 23 L24 8 M8 9 L24 8" fill="none" strokeWidth="1.2" />
+          </svg>
+          <div><div className="brand-name">TRACE</div><div className="brand-sub">Network Trust, Reputation &amp; Connectivity Explorer</div></div>
         </div>
         <nav aria-label="Main">
           {ROUTES.map((r) => (
@@ -59,24 +57,19 @@ export function App() {
           ))}
         </nav>
         <div className="sidebar-foot">
-          <div>Map data © OpenStreetMap contributors (ODbL)</div>
-          {roads?.retrievedAt && <div className="muted">Road snapshot {roads.retrievedAt.slice(0, 10)}</div>}
-          <div className="muted">Live sources + grounded AI · no live traffic</div>
+          <div><span className={`dot ${mode === 'LIVE' ? 'good' : mode === 'HISTORICAL' ? 'warn' : 'neutral'}`} aria-hidden />
+            {mode === 'LIVE' ? 'Live: sensor connected' : mode === 'HISTORICAL' ? 'Historical: no live sensor' : viewer ? 'No sensor connected' : 'Public mode'}</div>
+          {viewer && <div className="muted">Event stream: {stream}{lastIngest ? ` · last batch ${lastIngest.ingestedAt.slice(11, 19)} UTC` : ''}</div>}
+          <div className="muted">Read-only investigation · TRACE never blocks traffic</div>
         </div>
       </aside>
       <div className="main-col">
         <header className="topbar">
           <button className="menu-btn" aria-label="Open navigation" aria-expanded={navOpen} onClick={() => setNavOpen(!navOpen)}>☰</button>
-          <div className="topbar-title">{route.label}</div>
+          <div className="topbar-title">TRACE · {route.label}</div>
         </header>
-        <main id="main" className="content">
-          {loading && <div className="loading"><div className="skeleton page-skel" /><p className="muted">Loading the Mumbai road network… (free hosting can take up to a minute to wake)</p></div>}
-          {!loading && error && (
-            <div className="alert error"><strong>{error}</strong><div className="row"><Button onClick={() => void reload()}>Retry</Button></div></div>
-          )}
-          {!loading && !error && <Page />}
-        </main>
-        <footer className="footer">Nexus Resilience: Silent Shield · Advanced Algorithms CIA 3 · algorithms implemented in Java · OpenStreetMap data (ODbL) · not an official or production system</footer>
+        <main id="main" className="content"><Page /></main>
+        <footer className="footer">TRACE · student project (Advanced Algorithms) · threat data: abuse.ch Feodo Tracker (CC0), Spamhaus DROP, RIPEstat · not an official or production security system</footer>
       </div>
       {navOpen && <div className="scrim" onClick={() => setNavOpen(false)} aria-hidden />}
     </div>

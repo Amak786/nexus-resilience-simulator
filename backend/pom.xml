@@ -11,11 +11,11 @@
         <relativePath/>
     </parent>
 
-    <groupId>edu.nexus</groupId>
-    <artifactId>nexus-api</artifactId>
+    <groupId>edu.trace</groupId>
+    <artifactId>trace-api</artifactId>
     <version>1.0.0</version>
-    <name>NEXUS API</name>
-    <description>Nexus Resilience: Silent Shield - Java algorithm engine and REST API for Mumbai road-network integrity</description>
+    <name>trace-api</name>
+    <description>TRACE - Network Trust, Reputation and Connectivity Explorer: Java algorithm engine and REST API</description>
 
     <properties>
         <java.version>21</java.version>
@@ -46,7 +46,7 @@
     </dependencies>
 
     <build>
-        <finalName>nexus-api</finalName>
+        <finalName>trace-api</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

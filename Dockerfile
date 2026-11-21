@@ -1,6 +1,6 @@
-# NEXUS - single container: React front end bundled into the Spring Boot API.
-# Build:  docker build -t nexus .
-# Run:    docker run -p 8080:8080 nexus      (then open http://localhost:8080)
+# TRACE - single container: React front end bundled into the Spring Boot API.
+# Build:  docker build -t trace .
+# Run:    docker run -p 8080:8080 trace      (then open http://localhost:8080)
 
 # 1) Front end (React + TypeScript + Vite)
 FROM node:20-alpine AS web
@@ -23,9 +23,9 @@ RUN mvn -q -B -DskipTests package
 # 3) Runtime image
 FROM eclipse-temurin:21-jre
 WORKDIR /app
-RUN groupadd --system nexus && useradd --system --gid nexus nexus
-COPY --from=api /api/target/nexus-api.jar app.jar
-USER nexus
+RUN groupadd --system trace && useradd --system --gid trace trace
+COPY --from=api /api/target/trace-api.jar app.jar
+USER trace
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+UseSerialGC -Xss4m"
 EXPOSE 8080
 CMD ["java", "-jar", "app.jar"]

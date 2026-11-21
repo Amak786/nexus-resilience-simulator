@@ -1,12 +1,11 @@
 #!/usr/bin/env node
-// NEXUS data pipeline: builds the Mumbai road-graph and map-notes snapshots from OpenStreetMap.
+// TRACE Algorithm Lab data pipeline: builds the public Mumbai road-graph snapshot from OpenStreetMap (used for A*, Dijkstra and TSP demos).
 //
 //   node data-pipeline/build-mumbai-snapshot.mjs            # fetch from the network and build
 //   node data-pipeline/build-mumbai-snapshot.mjs --offline  # rebuild from data-pipeline/raw/*.json
 //
 // Sources (both ODbL, (c) OpenStreetMap contributors):
 //   * Overpass API  https://overpass-api.de/api/interpreter  (road ways with geometry)
-//   * OSM Notes API https://api.openstreetmap.org/api/0.6/notes.json (community map-issue reports)
 // Usage policies: one query each, identifying User-Agent, results cached in data-pipeline/raw/.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const RAW = path.join(here, 'raw');
 const OUT = path.join(here, '..', 'backend', 'src', 'main', 'resources', 'data', 'mumbai');
-const UA = 'nexus-academic-project/1.0 (student algorithms coursework)';
+const UA = 'trace-academic-project/1.0 (student algorithms coursework)';
 
 // Study area: Greater Mumbai (island city + western and eastern suburbs). south, west, north, east.
 export const BBOX = { south: 18.89, west: 72.77, north: 19.29, east: 72.99 };
@@ -58,14 +57,6 @@ const overpass = await cached('overpass-roads.json', async () => {
     body: 'data=' + encodeURIComponent(OVERPASS_QUERY),
   });
   if (!r.ok) throw new Error('Overpass HTTP ' + r.status);
-  const j = await r.json();
-  j.__retrievedAt = retrievedAt;
-  return j;
-});
-const notesRaw = await cached('osm-notes.json', async () => {
-  const url = `https://api.openstreetmap.org/api/0.6/notes.json?bbox=${BBOX.west},${BBOX.south},${BBOX.east},${BBOX.north}&limit=10000&closed=-1`;
-  const r = await fetch(url, { headers: { 'User-Agent': UA } });
-  if (!r.ok) throw new Error('Notes HTTP ' + r.status);
   const j = await r.json();
   j.__retrievedAt = retrievedAt;
   return j;
@@ -193,56 +184,5 @@ const roads = buildRoads(overpass, { query: OVERPASS_QUERY, role: 'UPDATED (curr
 fs.writeFileSync(path.join(OUT, 'roads.json'), JSON.stringify(roads));
 
 
-// ------------------------------------------------------------------ trusted baseline (OSM history, "attic" query)
-// The same query evaluated against the OSM database as it was on BASELINE_DATE. Comparing it with the
-// current snapshot reveals real, publicly recorded map edits (it does NOT reveal who is trustworthy).
-export const BASELINE_DATE = '2025-11-20T00:00:00Z';
-export const BASELINE_QUERY = `[out:json][timeout:300][date:"${BASELINE_DATE}"];
-way["highway"~"^(${CLASSES.join('|')})$"](${BBOX.south},${BBOX.west},${BBOX.north},${BBOX.east});
-out body geom;`;
-const baselineRaw = await cached('overpass-roads-baseline.json', async () => {
-  const r = await fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST', headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'data=' + encodeURIComponent(BASELINE_QUERY),
-  });
-  if (!r.ok) throw new Error('Overpass (baseline) HTTP ' + r.status);
-  const j = await r.json();
-  j.__retrievedAt = new Date().toISOString();
-  return j;
-});
-const baseline = buildRoads(baselineRaw, { query: BASELINE_QUERY, role: 'TRUSTED BASELINE (OSM state on ' + BASELINE_DATE + ')', osmDate: BASELINE_DATE });
-fs.writeFileSync(path.join(OUT, 'roads-baseline.json'), JSON.stringify(baseline));
-console.log(JSON.stringify({ baselineWays: baselineRaw.elements.length, baselineNodes: baseline.nodes.osmId.length, baselineEdges: baseline.edges.u.length }));
-
-// ------------------------------------------------------------------ OSM notes (map-issue reports)
-const clean = (s) => (s ?? '').replace(/\s+/g, ' ').trim().slice(0, 240);
-const notes = notesRaw.features.map((f) => {
-  const p = f.properties;
-  const closed = [...(p.comments ?? [])].reverse().find((c) => c.action === 'closed');
-  return {
-    id: p.id,
-    lat: Number(f.geometry.coordinates[1].toFixed(6)),
-    lon: Number(f.geometry.coordinates[0].toFixed(6)),
-    status: p.status,
-    created: p.date_created.replace(' UTC', 'Z').replace(' ', 'T'),
-    closed: p.status === 'closed' && closed ? closed.date.replace(' UTC', 'Z').replace(' ', 'T') : null,
-    comments: (p.comments ?? []).length,
-    text: clean(p.comments?.[0]?.text),
-  };
-});
-fs.writeFileSync(path.join(OUT, 'notes.json'), JSON.stringify({
-  provenance: {
-    dataset: 'OpenStreetMap map notes in the study area',
-    category: 'LATEST_AVAILABLE',
-    source: 'OpenStreetMap Notes API',
-    sourceUrl: 'https://api.openstreetmap.org/api/0.6/notes.json',
-    licence: 'ODbL 1.0 - (c) OpenStreetMap contributors',
-    retrievedAt: notesRaw.__retrievedAt ?? null,
-    coverage: { ...BBOX },
-    notes: 'Community-reported map issues (missing roads, wrong names, closures noticed by mappers). They are NOT traffic incidents. Usernames and user ids are removed; only the first comment text is kept (trimmed to 240 characters).',
-  },
-  records: notes,
-}));
-
-console.log(JSON.stringify({ ways: overpass.elements.length, nodes: roads.nodes.osmId.length, edges: roads.edges.u.length, names: roads.names.length, notes: notes.length,
-  roadsBytes: fs.statSync(path.join(OUT, 'roads.json')).size, notesBytes: fs.statSync(path.join(OUT, 'notes.json')).size }));
+console.log(JSON.stringify({ ways: overpass.elements.length, nodes: roads.nodes.osmId.length, edges: roads.edges.u.length,
+  names: roads.names.length, roadsBytes: fs.statSync(path.join(OUT, 'roads.json')).size }));

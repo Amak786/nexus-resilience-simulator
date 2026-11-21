@@ -1,0 +1,77 @@
+package edu.trace.service;
+
+import edu.trace.dto.LabDtos.AlgorithmInfo;
+
+import java.util.List;
+
+/** Purpose, complexity, where each algorithm is used in TRACE, and its limitations (served to the UI, the AI analyst and the docs). */
+public final class AlgorithmCatalog {
+
+    private AlgorithmCatalog() {}
+
+    public static final List<AlgorithmInfo> ALL = List.of(
+            new AlgorithmInfo("bfs", "Breadth-first search", "Unit 2", "algorithms.graph.GraphAlgorithms.bfs",
+                    "O(V + E)", "O(V)",
+                    "Network: fewest-hop path between two observed entities and the set reachable from a node",
+                    "Ignores edge weights; reachability in the observed graph is not reachability on the real network."),
+            new AlgorithmInfo("dfs", "Depth-first search with low-links (Tarjan) for articulation points and bridges", "Unit 2",
+                    "algorithms.graph.GraphAlgorithms.dfsOrder / articulationAndBridges",
+                    "O(V + E)", "O(V + E)",
+                    "Network: entities whose removal would split the observed graph (single points of connection)",
+                    "Structural only. In a star-shaped graph around one sensor most hubs are articulation points; that is not a risk signal."),
+            new AlgorithmInfo("dsu", "Disjoint-set union (union by rank + path compression)", "Unit 2",
+                    "algorithms.dsu.DisjointSetUnion",
+                    "O(alpha(n)) amortized per operation", "O(n)",
+                    "Network: connected components; Overview: components in the last 15 min vs the previous 15 min",
+                    "No deletion: each time window is rebuilt from the edges in that window."),
+            new AlgorithmInfo("dijkstra-fibheap", "Dijkstra with a Fibonacci heap (vs java.util.PriorityQueue)", "Unit 2",
+                    "algorithms.graph.Dijkstra, algorithms.heap.FibonacciHeap",
+                    "O(E + V log V) with the Fibonacci heap; O((V + E) log V) with a binary heap", "O(V + E)",
+                    "Network path explorer: lowest 'evidence distance' (1 / observations per relationship); Lab: road routes",
+                    "Non-negative weights only. The weight is a modelling choice, not a physical distance. The Fibonacci heap is usually slower in practice than PriorityQueue (measured)."),
+            new AlgorithmInfo("astar", "A* search (Fibonacci heap, straight-line heuristic)", "Unit 2",
+                    "algorithms.graph.GraphAlgorithms.aStar",
+                    "O(E + V log V) worst case; usually far fewer nodes settled", "O(V)",
+                    "Algorithm Lab: shortest road route on the public Mumbai road graph, compared with Dijkstra",
+                    "Needs an admissible heuristic. Network entities have no coordinates, so A* is not used on the observed graph."),
+            new AlgorithmInfo("centrality", "Brandes betweenness centrality", "Unit 2",
+                    "algorithms.graph.GraphAlgorithms.betweenness",
+                    "O(V E) unweighted", "O(V + E)",
+                    "Network: which entities lie on many shortest paths between others (structurally important)",
+                    "Centrality describes structure in the observed data, not maliciousness; skipped above 3000 nodes."),
+            new AlgorithmInfo("ford-fulkerson", "Ford-Fulkerson method (DFS augmenting paths)", "Unit 5",
+                    "algorithms.flow.FordFulkerson",
+                    "O(E |f*|) for integer capacities", "O(V + E)",
+                    "Network path explorer: number of relationship-disjoint paths between two entities (unit capacities)",
+                    "Unit capacities measure structural redundancy, not bandwidth."),
+            new AlgorithmInfo("edmonds-karp", "Edmonds-Karp max flow (BFS augmenting paths) + min cut", "Unit 5",
+                    "algorithms.flow.EdmondsKarp, algorithms.flow.MinCut",
+                    "O(V E^2)", "O(V + E)",
+                    "Network path explorer: same value as Ford-Fulkerson (checked); min cut = smallest separating set of relationships",
+                    "A mathematical bottleneck is not a security vulnerability."),
+            new AlgorithmInfo("segment-tree", "Segment tree with lazy propagation (sum, min, max)", "Unit 3",
+                    "algorithms.segtree.SegmentTree",
+                    "O(n) build; O(log n) range query and update", "O(n)",
+                    "Overview / Network: observations per minute; range sum and peak minute over a chosen window",
+                    "Counts what sensors reported, not total traffic."),
+            new AlgorithmInfo("quickselect", "Randomized Quickselect", "Unit 6 (CO5)",
+                    "algorithms.select.RandomizedQuickselect",
+                    "Expected O(n); worst case O(n^2)", "O(n)",
+                    "Investigations: k-th highest finding score -> top-k list without sorting every finding (checked against a sort)",
+                    "Only as meaningful as the documented scoring rule."),
+            new AlgorithmInfo("bloom-filter", "Bloom filter (bit array, k double-hashed positions)", "Unit 6 (CO5)",
+                    "algorithms.bloom.BloomFilter",
+                    "O(k) per add or query", "m bits (about 9.6 bits per item at 1% FPR)",
+                    "Threat intel: screen every observed address against the Feodo Tracker list; each 'possibly present' is confirmed exactly",
+                    "False positives possible (always verified); no deletion; rebuilt on every list refresh."),
+            new AlgorithmInfo("red-black-tree", "Red-black tree (CLRS) with subtree sizes and floor queries", "Unit 3",
+                    "algorithms.rbtree.RedBlackTree",
+                    "O(log n) insert, delete, search, floor, rank", "O(n)",
+                    "Threat intel: Spamhaus DROP ranges keyed by start address (floor lookup); Investigations: findings ordered by (score desc, id)",
+                    "Range lookup assumes non-overlapping CIDR blocks, which DROP provides."),
+            new AlgorithmInfo("metric-tsp", "Metric TSP 2-approximation (MST + preorder) with nearest-neighbour baseline", "Unit 5",
+                    "algorithms.tsp.MstPreorderTsp, NearestNeighbourTsp, HeldKarpTsp",
+                    "O(n^2) after the distance matrix; Held-Karp O(2^n n^2) for small exact checks", "O(n^2)",
+                    "Algorithm Lab: visiting order for locations on the Mumbai road graph and user matrices",
+                    "Network entities have no physical locations, so TSP is not applied to observed traffic."));
+}

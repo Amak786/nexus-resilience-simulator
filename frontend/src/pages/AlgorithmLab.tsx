@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useRequest } from '../lib/state';
-import type { AlgorithmInfo, MatrixRouteResponse, NodeView, RunStats, TraceStep } from '../lib/types';
+import type { AlgorithmInfo, AStarComparison, MatrixRouteResponse, NodeView, RunStats, TraceStep } from '../lib/types';
 import { BenchmarksPanel, BloomLab, FibHeapLab, SelfCheckPanel } from './LabExtras';
 import { TreeView } from '../components/TreeView';
 import { Badge, Button, Card, Complexity, ErrorBox, Field, List, PageHeader, fmt } from '../components/ui';
 
-type Tab = 'catalog' | 'flow' | 'fibheap' | 'dsu' | 'rbtree' | 'segtree' | 'quickselect' | 'tsp' | 'bench' | 'check' | 'bloom' | 'notes';
+type Tab = 'catalog' | 'flow' | 'fibheap' | 'dsu' | 'rbtree' | 'segtree' | 'quickselect' | 'tsp' | 'bench' | 'check' | 'bloom' | 'astar';
 const TABS: { id: Tab; label: string; algo: string }[] = [
   { id: 'catalog', label: 'All algorithms', algo: '' },
   { id: 'flow', label: 'Max flow', algo: 'edmonds-karp' },
@@ -16,7 +16,7 @@ const TABS: { id: Tab; label: string; algo: string }[] = [
   { id: 'segtree', label: 'Segment tree', algo: 'segment-tree' },
   { id: 'quickselect', label: 'Quickselect', algo: 'quickselect' },
   { id: 'bloom', label: 'Bloom filter', algo: 'bloom-filter' },
-  { id: 'notes', label: 'OSM notes (RB tree, segment tree)', algo: '' },
+  { id: 'astar', label: 'A* vs Dijkstra (road graph)', algo: 'astar' },
   { id: 'tsp', label: 'Metric TSP', algo: 'metric-tsp' },
   { id: 'bench', label: 'Benchmarks', algo: '' },
   { id: 'check', label: 'Self-check & tests', algo: '' },
@@ -62,9 +62,7 @@ export function AlgorithmLab() {
       {tab === 'quickselect' && <SelectLab />}
       {tab === 'tsp' && <TspLab />}
       {tab === 'bloom' && <BloomLab />}
-      {tab === 'notes' && <Card title="Real OSM map notes"><p className="small">The red-black tree index (keyed by creation time and note id), the segment tree over daily counts,
-        Quickselect resolution percentiles and the Bloom-filter import check run on the real OpenStreetMap notes. They are on the
-        <a href="#/connectivity"> Network Connectivity</a> page, below the map. Map notes are community map-issue reports, not traffic incidents.</p></Card>}
+      {tab === 'astar' && <AStarLab />}
     </>
   );
 }
@@ -317,6 +315,41 @@ function Catalog({ items }: { items: AlgorithmInfo[] }) {
       <div className="table-scroll"><table className="table small"><thead><tr><th>Algorithm</th><th>Workflow</th><th>Time</th><th>Space</th><th>Limitations</th></tr></thead>
         <tbody>{items.map((a) => <tr key={a.id}><td><b>{a.name}</b><div className="muted">{a.syllabusUnit} · {a.javaClass}</div></td><td>{a.usedIn}</td><td>{a.time}</td><td>{a.space}</td><td>{a.limitations}</td></tr>)}</tbody></table></div>
       <p className="small">Ford-Fulkerson, Edmonds-Karp and min cut are one technique family (network flow), compared on the same graph.</p>
+    </Card>
+  );
+}
+
+const ROUTE_PRESETS = [
+  { label: 'Dadar station to Bandra (Mumbai)', from: [19.018, 72.847], to: [19.056, 72.845] },
+  { label: 'Fort to Byculla (Mumbai)', from: [18.932, 72.835], to: [18.976, 72.833] },
+  { label: 'Andheri to Borivali (Mumbai)', from: [19.119, 72.846], to: [19.229, 72.857] },
+];
+
+/** A* with an admissible straight-line heuristic vs Dijkstra, both on the public OpenStreetMap road graph (historical dataset). */
+function AStarLab() {
+  const [i, setI] = useState(0);
+  const req = useRequest<AStarComparison>();
+  const r = req.data;
+  const p = ROUTE_PRESETS[i];
+  return (
+    <Card title="A* search vs Dijkstra on a real road graph">
+      <p className="small">A* needs coordinates for its heuristic, so it is demonstrated on the public Mumbai OpenStreetMap road graph
+        (12,907 junctions; a historical, attributed dataset, not live data). The heuristic is the straight-line distance to the target, which never
+        overestimates a road distance, so A* stays optimal.</p>
+      <Field label="Route"><select value={i} onChange={(e) => { setI(Number(e.target.value)); req.setData(null); }}>
+        {ROUTE_PRESETS.map((x, k) => <option key={k} value={k}>{x.label}</option>)}</select></Field>
+      <Button busy={req.busy} onClick={() => void req.run(() => api.astar(p.from[0], p.from[1], p.to[0], p.to[1]))}>Run both</Button>
+      <ErrorBox error={req.error} />
+      {r && (
+        <table className="table small"><tbody>
+          <tr><td>Shortest road length</td><td className="num">{fmt(r.distanceM / 1000, 2)} km</td></tr>
+          <tr><td>Junctions settled: A* / Dijkstra</td><td className="num">{fmt(r.aStarSettled)} / {fmt(r.dijkstraSettled)}</td></tr>
+          <tr><td>Time: A* / Dijkstra (single run)</td><td className="num">{r.aStarMs} / {r.dijkstraMs} ms</td></tr>
+          <tr><td>Same distance</td><td>{r.sameDistance ? <Badge tone="good">yes</Badge> : <Badge tone="bad">no</Badge>}</td></tr>
+        </tbody></table>
+      )}
+      {r && <p className="small muted">{r.note}</p>}
+      <Complexity time="O(E + V log V) worst case (Fibonacci heap)" space="O(V)" note="© OpenStreetMap contributors, ODbL" />
     </Card>
   );
 }

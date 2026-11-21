@@ -1,130 +1,83 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect } from 'react';
 import { api } from '../lib/api';
 import { useAppState, useRequest } from '../lib/state';
-import type { AnalystResponse, LiveSource, LiveStatus } from '../lib/types';
-import { MumbaiMap, pairs, type Overlay } from '../components/MumbaiMap';
-import { Badge, Button, Card, ErrorBox, PageHeader, fmt } from '../components/ui';
+import type { OverviewResponse } from '../lib/types';
+import { ErrorBox, Card, PageHeader, Badge, fmt } from '../components/ui';
+import { FindingCard, NeedsViewer, ago, time } from '../components/common';
 
-const SUGGESTED = [
-  'What changed in the road network since the last successful update?',
-  'How fresh is the underlying data, and what is missing?',
-  'Which roads in Dadar should be reviewed first, and why?',
-  'Explain why the route from Dadar station to Bandra is selected.',
-];
-
-const tone = (s: LiveSource['status']) => (s === 'OK' ? 'good' : s === 'STALE' ? 'warn' : s === 'NOT_AVAILABLE' ? 'neutral' : 'bad');
-
-function age(min: number | null): string {
-  if (min === null) return '';
-  if (min < 60) return `${min} min old`;
-  if (min < 48 * 60) return `${Math.round(min / 60)} h old`;
-  return `${Math.round(min / 1440)} d old`;
+function Sparkline({ values }: { values: number[] }) {
+  const max = Math.max(1, ...values);
+  const w = 600;
+  const h = 60;
+  const pts = values.map((v, i) => `${(i / Math.max(1, values.length - 1)) * w},${h - (v / max) * (h - 4) - 2}`).join(' ');
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="spark" role="img" aria-label="observations per minute, last 60 minutes" preserveAspectRatio="none">
+      <polyline points={pts} fill="none" strokeWidth="1.5" />
+    </svg>
+  );
 }
 
-/** Live workspace: map, freshness, a few real metrics, observed changes, the grounded AI analyst and sources. */
 export function Overview() {
-  const { provenance: p, network } = useAppState();
-  const [live, setLive] = useState<LiveStatus | null>(null);
-  const [liveErr, setLiveErr] = useState<string | null>(null);
-  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
-  const [question, setQuestion] = useState('');
-  const ask = useRequest<AnalystResponse>();
-
-  useEffect(() => {
-    const load = () => api.live().then((l) => { setLive(l); setLiveErr(null); }).catch((e: Error) => setLiveErr(e.message));
-    load();
-    api.analystInfo().then((i) => setAiConfigured(i.aiConfigured)).catch(() => setAiConfigured(null));
-    const t = setInterval(load, 60_000); // the server refreshes on its own schedule; this only re-reads the cache
-    return () => clearInterval(t);
-  }, []);
-
-  const overlays: Overlay[] = useMemo(() => (live?.roadEdits ?? []).filter((e) => e.geometry && e.geometry.length >= 4)
-    .map((e) => ({ coords: pairs(e.geometry!), color: '#c2410c', weight: 6 })), [live]);
-
-  if (!p || !network) return null;
-  const edits = live?.roadEdits ?? [];
-  const src = (id: string) => live?.sources.find((s) => s.id === id);
-  const submit = (q: string) => { const t = q.trim(); if (t) { setQuestion(t); void ask.run(() => api.ask(t)); } };
-  const r = ask.data;
-
+  const { sources, viewer, tick } = useAppState();
+  const ov = useRequest<OverviewResponse>();
+  const runOv = ov.run;
+  useEffect(() => { if (viewer) void runOv(api.overview); }, [viewer, tick, runOv]); // tick = new batch pushed over SSE
+  const d = ov.data;
+  const sensors = sources?.sensors ?? [];
   return (
     <>
-      <PageHeader kicker="Nexus Resilience · Mumbai" title="Is the road network I rely on changing?">
-        Real OpenStreetMap roads, checked against live sources on a schedule, analysed with graph algorithms, and explained by an
-        AI analyst that can only use the computed evidence. No live traffic is available, and nothing here pretends otherwise.
+      <PageHeader kicker="Overview" title="When a connection looks unusual, what do we actually know?">
+        TRACE collects connection metadata from authorised sensors, checks remote addresses against public threat lists, builds a graph of
+        observed relationships and explains every finding with its evidence and its uncertainty. Read-only: it never blocks anything.
       </PageHeader>
-
-      <div className="status-row" aria-label="Data freshness">
-        {liveErr && <Badge tone="bad">live status unavailable: {liveErr}</Badge>}
-        {live?.sources.map((s) => (
-          <span key={s.id} className="status-pill" title={`${s.notes}${s.error ? ' · last error: ' + s.error : ''}`}>
-            <span className={`dot ${tone(s.status)}`} aria-hidden /> {s.name}: <b>{s.status.replace(/_/g, ' ').toLowerCase()}</b>
-            {s.ageMinutes !== null && <span className="muted"> · {age(s.ageMinutes)}</span>}
+      <div className="status-row">
+        {sources?.intel.map((f) => (
+          <span key={f.id} className="status-pill" title={f.error ?? f.notes}>
+            <span className={`dot ${f.status === 'OK' ? 'good' : f.status === 'ERROR' || f.status === 'STALE' ? 'bad' : 'neutral'}`} aria-hidden />
+            {f.name}: <b>{f.status.toLowerCase().replace('_', ' ')}</b>{f.lastSuccessAt && <span className="muted"> · {ago(f.lastSuccessAt)}</span>}
+          </span>
+        ))}
+        {viewer && sensors.map((s) => (
+          <span key={s.sensorId} className="status-pill">
+            <span className={`dot ${s.status === 'LIVE' ? 'good' : s.status === 'DELAYED' ? 'warn' : 'bad'}`} aria-hidden />
+            sensor {s.sensorId}: <b>{s.status.toLowerCase()}</b><span className="muted"> · last batch {ago(s.lastBatchAt)}</span>
           </span>
         ))}
       </div>
-
-      <div className="metrics compact">
-        <div className="metric"><div className="metric-label">Mapped arterial roads</div><div className="metric-value">{fmt(p.graph.totalKm)} <span className="metric-unit">km</span></div>
-          <div className="metric-hint">{fmt(p.graph.segments)} segments · snapshot {(src('osm-edits') ? live?.roadEditsSince : '')?.slice(0, 10)}</div></div>
-        <div className="metric"><div className="metric-label">Largest connected part (DSU)</div><div className="metric-value">{fmt(p.graph.connectivity.largestComponentShare, 1)}%</div>
-          <div className="metric-hint">{p.graph.connectivity.weakComponents} components</div></div>
-        <div className="metric"><div className="metric-label">Road edits since snapshot</div><div className="metric-value">{src('osm-edits')?.lastSuccessAt ? fmt(edits.length) : '-'}</div>
-          <div className="metric-hint">{src('osm-edits')?.lastSuccessAt ? `checked ${src('osm-edits')!.lastSuccessAt!.slice(11, 16)} UTC` : 'not checked yet'}</div></div>
-        <div className="metric"><div className="metric-label">Weather now (context)</div><div className="metric-value">{live?.weather ? `${fmt(live.weather.temperatureC, 1)} °C` : '-'}</div>
-          <div className="metric-hint">{live?.weather ? `${live.weather.description} · rain next 6 h ${fmt(live.weather.next6hPrecipitationMm, 1)} mm` : 'no observation yet'}</div></div>
-      </div>
-
-      <div className="grid-main">
-        <Card>
-          <MumbaiMap segments={network.items} area={p.studyArea} overlays={overlays} height={560} />
-          <p className="small muted">Grey-blue: arterial roads in the committed OSM snapshot. <span style={{ color: '#c2410c' }}>Orange</span>: roads edited in OSM since the snapshot (live check).</p>
-        </Card>
-        <div className="stack">
-          <Card title="AI analyst" actions={aiConfigured === false ? <Badge tone="warn">evidence-only mode</Badge> : aiConfigured ? <Badge tone="good">grounded AI</Badge> : null}>
-            <form onSubmit={(e) => { e.preventDefault(); submit(question); }}>
-              <textarea rows={2} maxLength={600} value={question} placeholder="Ask about changes, freshness, routes or connectivity" onChange={(e) => setQuestion(e.target.value)} />
-              <div className="row"><Button type="submit" busy={ask.busy} disabled={!question.trim()}>Ask</Button></div>
-            </form>
-            <div className="chips">{SUGGESTED.map((s) => <button key={s} className="chip" onClick={() => submit(s)}>{s}</button>)}</div>
-            <ErrorBox error={ask.error} />
-            {r && (
-              <div className="answer">
-                <div className="small">{r.answerKind === 'AI_INTERPRETATION' ? <Badge tone="info">AI interpretation · {r.model}</Badge> : <Badge tone="neutral">computed evidence only</Badge>}
-                  <span className="muted"> {r.generatedAt.slice(0, 19).replace('T', ' ')} UTC</span></div>
-                {r.notice && <p className="small warn-text">{r.notice}</p>}
-                <p className="answer-text">{r.answer}</p>
-                <b className="small">Evidence ({r.evidence.length} tool result{r.evidence.length === 1 ? '' : 's'})</b>
-                {r.evidence.map((e, i) => (
-                  <details key={i} className="small">
-                    <summary><code>{e.tool}</code> {e.result.error ? <Badge tone="bad">error</Badge> : <span className="muted">{e.result.result} · {e.result.source}</span>}</summary>
-                    <pre className="evidence">{JSON.stringify(e.result.error ?? e.result.data, null, 1).slice(0, 4000)}</pre>
-                  </details>
-                ))}
+      <NeedsViewer>
+        <ErrorBox error={ov.error} />
+        {sensors.length === 0 && <div className="alert info">No sensor has sent data yet. Start one from <a href="#/sources">Data Sources</a> (Windows or Linux); results appear here within seconds.</div>}
+        {d && (
+          <>
+            <div className="metrics compact">
+              <div className="metric"><div className="metric-label">Remote addresses observed</div><div className="metric-value">{fmt(d.remoteAddresses)}</div><div className="metric-hint">{fmt(d.flows)} connections, last {sources?.retentionHours} h</div></div>
+              <div className="metric"><div className="metric-label">Findings open</div><div className="metric-value">{fmt(d.findingsOpen)}</div><div className="metric-hint">{d.findingsHigh} high severity (not dismissed)</div></div>
+              <div className="metric"><div className="metric-label">New remotes, last 15 min</div><div className="metric-value">{fmt(d.changes.newRemotes)}</div><div className="metric-hint">{d.changes.goneRemotes} no longer seen · components {d.changes.componentsBefore} → {d.changes.componentsNow}</div></div>
+            </div>
+            <div className="grid-2">
+              <Card title="Findings requiring attention">
+                {d.topFindings.length === 0 ? <p className="small">No rule fired on the current observations. That is not proof that nothing is wrong; see the limits on each source.</p>
+                  : d.topFindings.map((f) => <FindingCard key={f.id} f={f} />)}
+                <p className="small"><a href="#/investigations">All findings and lookups →</a></p>
+              </Card>
+              <div className="stack">
+                <Card title="Observations per minute (last 60 min)">
+                  <Sparkline values={d.timeSeries.perMinute} />
+                  <p className="small muted">Peak {d.timeSeries.queryMax} at minute {d.timeSeries.queryMaxMinute} of 60; total {d.timeSeries.querySum}
+                    {d.timeSeries.matchesScan ? ' (segment tree = linear scan)' : ''}. Counts what sensors reported, not all traffic.</p>
+                </Card>
+                <Card title="Recent connections">
+                  <div className="table-scroll short"><table className="table small">
+                    <thead><tr><th>Remote</th><th>Port</th><th>Process</th><th>Last seen</th></tr></thead>
+                    <tbody>{d.recent.map((o, i) => <tr key={i}><td><a href={`#/investigations?ip=${o.remoteAddress}`}>{o.remoteAddress}</a></td><td>{o.remotePort}</td><td>{o.process ?? <span className="muted">-</span>}</td><td title={time(o.lastSeen)}>{ago(o.lastSeen)}</td></tr>)}</tbody>
+                  </table></div>
+                </Card>
               </div>
-            )}
-            <p className="small muted">The analyst can only call six application tools (data status, network summary, road edits, weather,
-              integrity check, route). It never sees the whole dataset, and it is told never to claim a road is blocked.</p>
-          </Card>
-          <Card title={`Observed changes (${edits.length})`}>
-            {edits.length === 0
-              ? <p className="small">{src('osm-edits')?.lastSuccessAt ? 'No arterial road was edited in OpenStreetMap since the snapshot at the last check.' : 'The live OSM edit check has not completed yet.'}</p>
-              : <ul className="plain-list small">{edits.slice(0, 8).map((e) => <li key={e.wayId}><a href={e.osmUrl} target="_blank" rel="noreferrer">{e.name || `way ${e.wayId}`}</a> <span className="muted">{e.highway} · v{e.version} · {e.editedAt.slice(0, 16).replace('T', ' ')} UTC</span></li>)}</ul>}
-            <p className="small">Year-on-year snapshot comparison with scored changes: <a href="#/integrity">Integrity Check</a>.</p>
-          </Card>
-        </div>
-      </div>
-
-      <Card title="Sources and method">
-        <table className="table small"><thead><tr><th>Source</th><th>Kind</th><th>Owner · licence</th><th>Update</th><th>Last success</th><th>Observed</th></tr></thead>
-          <tbody>{live?.sources.map((s) => (
-            <tr key={s.id}><td>{s.name}</td><td>{s.kind.replace('_', ' ').toLowerCase()}</td><td>{s.owner ?? '-'}{s.licence ? ` · ${s.licence}` : ''}</td>
-              <td>{s.updateFrequency ?? '-'}</td><td>{s.lastSuccessAt?.slice(0, 16).replace('T', ' ') ?? '-'}</td><td>{s.observedAt?.slice(0, 16).replace('T', ' ') ?? '-'}</td></tr>))}
-            <tr><td>Road graph</td><td>static snapshot</td><td>OpenStreetMap · ODbL</td><td>on rebuild</td><td colSpan={2}>{p.sources.find((s) => s.id === 'roads')?.dataTimestamp?.slice(0, 16).replace('T', ' ')}</td></tr>
-          </tbody></table>
-        <p className="small muted">Pipeline: providers → scheduled ingestion with timeouts, retries and validation → in-memory cache with observation and ingestion
-          times → graph algorithms (DSU, Dijkstra, max flow, change detection) → REST API → this map → AI analyst grounded on tool results.</p>
-      </Card>
+            </div>
+            <p className="small muted">Computed {time(d.computedAt)}. Live updates arrive over a server-sent event stream when a sensor uploads. <Badge tone="neutral">observation</Badge> = reported by a sensor; <Badge tone="warn">threat-intel match</Badge> = on a downloaded list; <Badge tone="neutral">heuristic</Badge> = a documented rule; confirmed incidents exist only when an analyst marks one.</p>
+          </>
+        )}
+      </NeedsViewer>
     </>
   );
 }
