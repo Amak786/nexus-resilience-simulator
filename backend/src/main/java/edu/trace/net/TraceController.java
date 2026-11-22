@@ -62,11 +62,30 @@ public class TraceController {
         this.store = store;
         this.analysis = analysis;
         this.intel = intel;
-        this.ingestToken = ingestToken.strip().getBytes(StandardCharsets.UTF_8);
-        this.viewToken = viewToken.strip().getBytes(StandardCharsets.UTF_8);
+        this.ingestToken = token(ingestToken, "TRACE_INGEST_TOKEN");
+        this.viewToken = token(viewToken, "TRACE_VIEW_TOKEN");
+        log.info("token state: ingest={}, viewer={}", state(this.ingestToken), state(this.viewToken));
     }
 
     // ---------------------------------------------------------------- auth
+
+    /** Spring property first, then the raw environment variable; surrounding whitespace and quotes are removed. */
+    static byte[] token(String fromSpring, String envName) {
+        String v = fromSpring == null || fromSpring.isBlank() ? System.getenv(envName) : fromSpring;
+        if (v == null) {
+            return new byte[0];
+        }
+        v = v.strip();
+        if (v.length() >= 2 && (v.startsWith("\"") && v.endsWith("\"") || v.startsWith("'") && v.endsWith("'"))) {
+            v = v.substring(1, v.length() - 1).strip();
+        }
+        return v.getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** Non-secret configuration state: UNSET, TOO_SHORT (under 16 characters) or OK. Never the value or its length. */
+    static String state(byte[] t) {
+        return t.length == 0 ? "UNSET" : t.length < 16 ? "TOO_SHORT" : "OK";
+    }
 
     /** Thrown for 401 / 503 auth outcomes. */
     public static final class AuthException extends RuntimeException {
@@ -135,6 +154,8 @@ public class TraceController {
         m.put("bloom", intel.bloomStats());
         m.put("viewerConfigured", viewToken.length >= 16);
         m.put("ingestConfigured", ingestToken.length >= 16);
+        m.put("viewerTokenState", state(viewToken));
+        m.put("ingestTokenState", state(ingestToken));
         m.put("viewer", isViewer(req));
         List<Map<String, Object>> sensors = new java.util.ArrayList<>();
         Instant now = store.now();

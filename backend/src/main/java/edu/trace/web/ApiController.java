@@ -40,6 +40,8 @@ import java.util.Map;
 @RequestMapping("/api")
 public class ApiController {
 
+    private static final Instant STARTED = Instant.now();
+
     private final LabService lab;
     private final TimelineService timeline;
     private final RouteService routes;
@@ -65,6 +67,7 @@ public class ApiController {
         m.put("version", "2.0.0");
         m.put("java", System.getProperty("java.version"));
         m.put("time", Instant.now().toString());
+        m.put("startedAt", STARTED.toString());
         return m;
     }
 

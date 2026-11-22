@@ -191,4 +191,13 @@ class TraceCoreTest {
         assertEquals(4, ts.querySum());
         assertTrue(ts.matchesScan());
     }
+
+    @Test
+    @DisplayName("TR-7 (token config): whitespace and surrounding quotes are ignored; state never reveals the value")
+    void tokenState() {
+        assertEquals("OK", TraceController.state(TraceController.token("  0123456789abcdef0123  ", "X_UNUSED")));
+        assertEquals("OK", TraceController.state(TraceController.token("\"0123456789abcdef\"", "X_UNUSED")));
+        assertEquals("TOO_SHORT", TraceController.state(TraceController.token("short", "X_UNUSED")));
+        assertEquals("UNSET", TraceController.state(TraceController.token("", "X_UNUSED_NOT_SET_ANYWHERE")));
+    }
 }

@@ -112,7 +112,8 @@ class ApiIntegrationTest {
         mvc.perform(get("/api/sources")).andExpect(status().isOk()).andExpect(jsonPath("$.viewer").value(false))
                 .andExpect(jsonPath("$.sensors.length()").value(0));
         mvc.perform(get("/api/sources").header("Authorization", "Bearer viewer-token-for-tests-456")).andExpect(status().isOk())
-                .andExpect(jsonPath("$.sensors[0].status").value("LIVE")).andExpect(jsonPath("$.mode").value("LIVE"));
+                .andExpect(jsonPath("$.sensors[0].status").value("LIVE")).andExpect(jsonPath("$.mode").value("LIVE"))
+                .andExpect(jsonPath("$.viewerTokenState").value("OK")).andExpect(jsonPath("$.ingestTokenState").value("OK"));
         mvc.perform(get("/api/investigate?ip=10.0.0.1")).andExpect(status().isOk()).andExpect(jsonPath("$.scope").value("PRIVATE"))
                 .andExpect(jsonPath("$.localObservationsIncluded").value(false));
         mvc.perform(get("/api/investigate?ip=example.com")).andExpect(status().isBadRequest());
