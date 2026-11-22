@@ -9,13 +9,15 @@ public threat lists, builds a graph of the observed relationships, runs graph al
 and explains every finding with its evidence, its uncertainty and suggested next steps. An optional AI analyst explains the computed
 results; it cannot invent data and is not the authority on whether something is malicious.
 
+Live: https://trace-qol8.onrender.com (free hosting: first request after idle can take a minute). Audit: [AUDIT.md](AUDIT.md).
+
 Advanced Algorithms project (BTech AI/ML). Java 21 / Spring Boot backend with hand-written algorithms; React + TypeScript frontend.
 
 ## What is real
 
 | Data | Source | Kind |
 | --- | --- | --- |
-| Connections | TRACE sensor (Windows `Get-NetTCPConnection`, Linux `ss`) on an authorised machine | live when a sensor uploads; otherwise shown as historical / no sensor |
+| Connections | TRACE sensors on authorised machines: Windows `Get-NetTCPConnection`, Linux `ss`, or Zeek `conn.log` (`sensor/trace-zeek.py`) | live when a sensor uploads; otherwise shown as historical / no sensor |
 | Botnet C2 addresses | abuse.ch Feodo Tracker IP blocklist (CC0) | downloaded hourly |
 | Hijacked netblocks | Spamhaus DROP (IPv4) | downloaded hourly |
 | Announcing network (ASN) | RIPEstat prefix-overview | on demand, cached 6 h, public addresses only |
@@ -27,7 +29,7 @@ TRACE sees only what its sensors report; it does not monitor the internet.
 
 ## Screens
 
-Overview · Network (graph, node details, BFS / Dijkstra / max-flow path analysis) · Investigations (IP lookup, findings, analyst decisions,
+Overview · Network (graph, node details, BFS / Dijkstra / max-flow path analysis) · Investigations (IP and domain lookup, findings, analyst decisions,
 observations) · Algorithm Lab · AI Analyst · Data Sources (status, freshness, sensor setup, sign-in).
 
 ## Algorithms (all hand-written, all tested)
@@ -77,18 +79,19 @@ Or one container: `docker build -t trace . && docker run -p 8080:8080 -e TRACE_I
 | `ANTHROPIC_API_KEY` | Optional. Enables AI answers (Claude); without it the analyst returns deterministic evidence |
 | `ABUSEIPDB_API_KEY` | Optional. Enables AbuseIPDB lookups |
 | `TRACE_RETENTION_HOURS` (`trace.retention-hours`) | Observation retention, default 24 |
+| `TRACE_DATA_DIR` | Optional folder for a disk snapshot of observations (survives restarts on a laptop or VPS) |
 | `CORS_ALLOWED_ORIGINS`, `MAX_REQUEST_BYTES` | Web security limits |
 
 ## Tests
 
-`cd backend && mvn test` runs 100 tests: algorithm correctness against independent oracles, ingestion validation, duplicates, retention,
+`cd backend && mvn test` runs 103 tests; `python -m unittest sensor/test_trace_zeek.py` runs the Zeek forwarder tests: algorithm correctness against independent oracles, ingestion validation, duplicates, retention,
 feed parsing and failures, SSRF and privacy guards, auth, findings and scoring, graph analysis, AI grounding and fallback, secrets scan.
 Frontend: `npm run lint`, `npx tsc --noEmit`, `npm run build`.
 
 ## Documentation
 
-Viva pack: [docs/viva/](docs/viva/) — overview, architecture, tech stack, algorithms, data flow, security model, 40 viva questions,
-demo script, limitations. Deployment: [docs/deployment.md](docs/deployment.md). Benchmarks: [docs/benchmark-results.md](docs/benchmark-results.md).
+Viva pack: [docs/viva/](docs/viva/) — overview, architecture, tech stack, algorithms, data flow, security model, 43 viva questions,
+demo script, limitations, and [TRACE vs Truecaller and traditional tools](docs/viva/TRACE_VS_OTHERS.md). Deployment: [docs/deployment.md](docs/deployment.md). Benchmarks: [docs/benchmark-results.md](docs/benchmark-results.md).
 
 Threat data © abuse.ch (CC0) and The Spamhaus Project; network data © RIPE NCC; road data © OpenStreetMap contributors (ODbL).
 TRACE is a student project, not an official or production security product.

@@ -88,5 +88,5 @@ public final class LabDtos {
     public record LabSelectResponse(int n, List<SelectResult> results, long sortComparisonsEstimate, List<String> notes) {}
 
     public record AlgorithmInfo(String id, String name, String syllabusUnit, String javaClass, String time,
-                                String space, String usedIn, String limitations) {}
+                                String space, String usedIn, String limitations, String whyChosen, String vivaDemo) {}
 }

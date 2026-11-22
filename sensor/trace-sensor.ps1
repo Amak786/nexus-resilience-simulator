@@ -9,7 +9,7 @@ Run only on machines you own or are authorised to monitor.
 Usage (PowerShell):
   $env:TRACE_INGEST_TOKEN = "<the server's TRACE_INGEST_TOKEN>"
   .\trace-sensor.ps1 -Server http://localhost:8080 -SensorId my-laptop -IncludeProcess
-  .\trace-sensor.ps1 -Server https://nexus-resilience.onrender.com -SensorId lab-pc-1 -IntervalSeconds 15
+  .\trace-sensor.ps1 -Server https://trace-qol8.onrender.com -SensorId lab-pc-1 -IntervalSeconds 15
   .\trace-sensor.ps1 -Once          # one batch, then exit (useful for testing)
 #>
 param(

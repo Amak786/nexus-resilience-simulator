@@ -238,6 +238,50 @@ public class EventStore {
         return s == null ? null : s.replaceAll("[^A-Za-z0-9 ._/-]", "").substring(0, Math.min(40, s.replaceAll("[^A-Za-z0-9 ._/-]", "").length()));
     }
 
+    // ---------------------------------------------------------------- snapshot (optional persistence)
+
+    /** Serializable copy of the store. Flows use plain fields so Jackson can write and read them. */
+    public record FlowState(String sensorId, String protocol, String localAddress, int localPort, String remoteAddress, int remotePort,
+                            String process, String lastState, String firstSeen, String lastSeen, String lastIngested, long observations) {}
+
+    public record Snapshot(String savedAt, List<FlowState> flows, List<SensorInfo> sensors, Map<Long, Long> perMinute) {}
+
+    public synchronized Snapshot snapshot() {
+        List<FlowState> fs = new ArrayList<>();
+        for (Flow f : flows.values()) {
+            fs.add(new FlowState(f.sensorId, f.protocol, f.localAddress, f.localPort, f.remoteAddress, f.remotePort, f.process, f.lastState,
+                    f.firstSeen.toString(), f.lastSeen.toString(), f.lastIngested == null ? null : f.lastIngested.toString(), f.observations));
+        }
+        return new Snapshot(clock.instant().toString(), fs, List.copyOf(sensors.values()), new HashMap<>(perMinute));
+    }
+
+    /** Restores a snapshot; records outside the retention window are dropped immediately. */
+    public synchronized int restore(Snapshot s) {
+        if (s == null || s.flows() == null) {
+            return 0;
+        }
+        for (FlowState x : s.flows()) {
+            String key = x.sensorId() + "|" + x.protocol() + "|" + x.localAddress() + "|" + x.localPort() + "|" + x.remoteAddress() + "|" + x.remotePort();
+            Flow f = new Flow(key, x.sensorId(), x.protocol(), x.localAddress(), x.localPort(), x.remoteAddress(), x.remotePort());
+            f.process = x.process();
+            f.lastState = x.lastState();
+            f.firstSeen = Instant.parse(x.firstSeen());
+            f.lastSeen = Instant.parse(x.lastSeen());
+            f.lastIngested = x.lastIngested() == null ? null : Instant.parse(x.lastIngested());
+            f.observations = x.observations();
+            flows.put(key, f);
+        }
+        if (s.sensors() != null) {
+            s.sensors().forEach(si -> sensors.put(si.sensorId(), si));
+        }
+        if (s.perMinute() != null) {
+            perMinute.putAll(s.perMinute());
+        }
+        purge(clock.instant());
+        version++;
+        return flows.size();
+    }
+
     // ---------------------------------------------------------------- read side
     public synchronized List<Flow> flows() {
         purge(clock.instant());

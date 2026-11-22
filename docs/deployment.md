@@ -1,18 +1,17 @@
 # Deployment
 
-TRACE ships as one Docker image (Spring Boot API + built React site). The existing free Render web service is reused; its
-infrastructure name and URL (`nexus-resilience`, https://nexus-resilience.onrender.com) are kept because renaming a Render service creates
-a new service and URL. Everything users see is TRACE.
+TRACE runs as one Docker image (Spring Boot API + built React site) on a free Render web service named **trace**:
+https://trace-qol8.onrender.com. (An older service, `nexus-resilience`, still exists from the previous project and can be deleted.)
 
-## Render (existing service)
-
+## Render
 1. Push to `main` on GitHub.
-2. Render dashboard → service → **Environment**: add `TRACE_INGEST_TOKEN` and `TRACE_VIEW_TOKEN` (random 32-hex strings, different from
-   each other). Optionally `ANTHROPIC_API_KEY` and `ABUSEIPDB_API_KEY`. Never commit them.
-3. **Manual Deploy → Deploy latest commit** (the service is linked to a public repository URL, so auto-deploy is not available).
-4. Check: `/api/health` returns `UP`; `/api/sources` shows Feodo and Spamhaus `OK` within a minute of start-up.
-5. Run a sensor against the Render URL (see README). The free instance sleeps after 15 minutes without requests; while a sensor uploads
-   every 15 s it stays awake. Observations are kept in memory, so a restart starts with an empty store (by design; see limitations).
+2. Render → service **trace** → Environment: `TRACE_INGEST_TOKEN` and `TRACE_VIEW_TOKEN` (Render's *Generate* button creates random values;
+   each must be at least 16 characters). Optional: `ANTHROPIC_API_KEY`, `ABUSEIPDB_API_KEY`, `TRACE_DATA_DIR`.
+3. **Manual Deploy → Deploy latest commit** (the service is linked to the public repository URL, so it does not auto-deploy).
+4. Verify: `/api/health` (`startedAt` changes after a deploy), `/api/sources` (`viewerTokenState` and `ingestTokenState` must be `OK`,
+   feeds `OK` within a minute).
+5. Free instances sleep after ~15 minutes without requests; a sensor uploading every 15 s keeps it awake. The disk is ephemeral, so
+   observations are lost on restart even with `TRACE_DATA_DIR` (that option is for laptops and VPS installs).
 
 ## Local Docker
 

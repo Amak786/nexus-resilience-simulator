@@ -615,12 +615,85 @@ public class AnalysisService {
         } else if (abuse != null && abuse.abuseConfidenceScore() >= 50) {
             assessment = "Community abuse reports exist (score " + abuse.abuseConfidenceScore() + "). Evidence of concern, not proof.";
             next.add("Read the abuse categories on AbuseIPDB and compare with what the host was doing.");
+        } else if (!pub) {
+            assessment = "Non-public address (" + scope + "): it is not on the internet, so it was not checked against external lists. "
+                    + "Judge it from local context (which device uses it, and why).";
         } else {
             assessment = "No reputation evidence of concern was found in the configured sources.";
         }
         next.add("Review the connection history and related nodes in the Network view.");
         return new Investigation(query, ip, scope.name(), includeLocal, total(fs), str(first), str(last), List.copyOf(ports), List.copyOf(procs),
                 List.copyOf(sensors), matches, asn, abuse, abuseStatus, related, assessment, known, uncertain, next, store.now().toString());
+    }
+
+    /** Result of looking up an IP literal or a domain name. For a domain, every resolved address is investigated. */
+    public record Lookup(String query, String kind, String domain, String resolvedAt, String dnsError, List<Investigation> results,
+                         String note) {}
+
+    private static final java.util.regex.Pattern HOST = java.util.regex.Pattern.compile(
+            "(?i)^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$");
+
+    /** Resolver hook (DNS only; TRACE never connects to the host). Replaceable in tests. */
+    @FunctionalInterface
+    public interface Resolver {
+        List<String> resolve(String host) throws Exception;
+    }
+
+    private Resolver resolver = host -> {
+        java.util.concurrent.CompletableFuture<java.net.InetAddress[]> f =
+                java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return java.net.InetAddress.getAllByName(host);
+                    } catch (java.net.UnknownHostException e) {
+                        throw new java.util.concurrent.CompletionException(e);
+                    }
+                });
+        java.net.InetAddress[] all = f.get(4, java.util.concurrent.TimeUnit.SECONDS);
+        List<String> out = new ArrayList<>();
+        for (java.net.InetAddress a : all) {
+            String c = IpAddr.canonical(a.getHostAddress());
+            if (c != null && !out.contains(c)) {
+                out.add(c);
+            }
+        }
+        return out;
+    };
+
+    void setResolver(Resolver r) {
+        this.resolver = r;
+    }
+
+    public Lookup lookup(String query, boolean includeLocal) {
+        String q = query == null ? "" : query.strip().toLowerCase();
+        if (q.endsWith(".")) {
+            q = q.substring(0, q.length() - 1);
+        }
+        if (IpAddr.canonical(q) != null) {
+            return new Lookup(query, "IP", null, null, null, List.of(investigate(q, includeLocal, true)),
+                    "IP address checked directly.");
+        }
+        if (!HOST.matcher(q).matches()) {
+            throw new ValidationException("q", "enter an IPv4/IPv6 address or a domain name such as example.com (no URLs, ports or paths)");
+        }
+        List<String> addrs;
+        String err = null;
+        try {
+            addrs = resolver.resolve(q);
+        } catch (Exception e) {
+            addrs = List.of();
+            Throwable c = e.getCause() != null ? e.getCause() : e;
+            err = c instanceof java.net.UnknownHostException ? "name does not resolve (NXDOMAIN or no address records)"
+                    : c instanceof java.util.concurrent.TimeoutException || e instanceof java.util.concurrent.TimeoutException
+                    ? "DNS lookup timed out after 4 s" : "DNS lookup failed";
+        }
+        List<Investigation> res = new ArrayList<>();
+        for (String a : addrs.stream().limit(8).toList()) {
+            res.add(investigate(a, includeLocal, true));
+        }
+        return new Lookup(query, "DOMAIN", q, store.now().toString(), err, res,
+                "Resolved with the server's DNS resolver at lookup time; results can differ by location and time (CDNs, load balancing). "
+                        + "TRACE only queries DNS and the reputation sources; it never connects to the host. A domain can share addresses with "
+                        + "unrelated sites, so an address-level match does not by itself condemn the domain.");
     }
 
     // ---------------------------------------------------------------- helpers

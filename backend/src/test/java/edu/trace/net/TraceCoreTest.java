@@ -200,4 +200,43 @@ class TraceCoreTest {
         assertEquals("TOO_SHORT", TraceController.state(TraceController.token("short", "X_UNUSED")));
         assertEquals("UNSET", TraceController.state(TraceController.token("", "X_UNUSED_NOT_SET_ANYWHERE")));
     }
+
+    @Test
+    @DisplayName("TR-8 (domain lookup): DNS-resolved addresses are each investigated; bad names, URLs and failures are explicit")
+    void domainLookup() {
+        MutableClock c = new MutableClock();
+        EventStore s = new EventStore(c, Duration.ofHours(24), 1000);
+        AnalysisService a = new AnalysisService(s, ThreatIntelServiceTestSupport.loaded(new ObjectMapper()));
+        a.setResolver(host -> host.equals("listed.example") ? List.of("50.16.16.211", "10.0.0.7") : List.of());
+        var r = a.lookup("Listed.Example.", false);
+        assertEquals("DOMAIN", r.kind());
+        assertEquals("listed.example", r.domain());
+        assertEquals(2, r.results().size());
+        assertEquals("abuse.ch Feodo Tracker", r.results().get(0).intel().get(0).list());
+        assertTrue(r.results().get(1).assessment().startsWith("Non-public address"), "private address is not called clean");
+        assertEquals("IP", a.lookup("8.8.8.8", false).kind());
+        a.setResolver(host -> { throw new java.net.UnknownHostException(host); });
+        var nx = a.lookup("nothing.example", false);
+        assertTrue(nx.results().isEmpty());
+        assertTrue(nx.dnsError().contains("does not resolve"));
+        for (String bad : List.of("http://evil.example/x", "evil.example:8080", "localhost", "a b.com", "-bad.example", "x".repeat(300) + ".com")) {
+            assertThrows(ValidationException.class, () -> a.lookup(bad, false), bad);
+        }
+    }
+
+    @Test
+    @DisplayName("TR-9 (snapshot): a saved store restores flows, sensors and per-minute counts; expired data is dropped")
+    void snapshotRoundTrip() {
+        MutableClock c = new MutableClock();
+        EventStore s = new EventStore(c, Duration.ofHours(1), 1000);
+        s.ingest(batch("batch-s001", List.of(row(T0.toString(), "8.8.8.8", 443, "chrome"), row(T0.toString(), "1.1.1.1", 443, "edge"))));
+        var snap = s.snapshot();
+        EventStore t = new EventStore(c, Duration.ofHours(1), 1000);
+        assertEquals(2, t.restore(snap));
+        assertEquals(1, t.sensors().size());
+        assertEquals(2, t.perMinute(1)[0]);
+        c.now = T0.plus(Duration.ofHours(2));
+        EventStore u = new EventStore(c, Duration.ofHours(1), 1000);
+        assertEquals(0, u.restore(snap), "older than retention");
+    }
 }

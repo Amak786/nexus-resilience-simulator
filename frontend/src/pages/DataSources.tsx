@@ -27,7 +27,7 @@ export function DataSources() {
                 <Button type="submit" disabled={!tok.trim()}>Sign in</Button></div>
             </form>
           )}
-          <p className="small muted">Mode: <b>{sources?.mode.replace('_', ' ').toLowerCase()}</b> · retention {sources?.retentionHours} h · sensor upload {sources?.ingestConfigured ? 'enabled' : 'disabled (TRACE_INGEST_TOKEN unset)'}</p>
+          <p className="small muted">Mode: <b>{sources?.mode.replace('_', ' ').toLowerCase()}</b> · retention {sources?.retentionHours} h · storage {sources?.storage === 'MEMORY_WITH_DISK_SNAPSHOT' ? 'memory + disk snapshot' : 'memory only (lost on restart)'} · sensor upload {sources?.ingestConfigured ? 'enabled' : 'disabled (TRACE_INGEST_TOKEN unset)'}</p>
         </Card>
         <Card title="Sensors">
           {!viewer ? <p className="small muted">Sensor details are visible to signed-in viewers.</p> : sources?.sensors.length === 0 ? <p className="small">No sensor has connected yet.</p> : (
@@ -59,6 +59,9 @@ export function DataSources() {
         <p className="small">Linux (bash, needs ss, curl and python3):</p>
         <pre className="evidence">{`export TRACE_INGEST_TOKEN="<server TRACE_INGEST_TOKEN>"
 TRACE_SERVER=${origin} SENSOR_ID=lab-server ./trace-sensor.sh`}</pre>
+        <p className="small">Zeek (network monitor on a SPAN/mirror port or gateway), needs Python 3:</p>
+        <pre className="evidence">{`export TRACE_INGEST_TOKEN="<server TRACE_INGEST_TOKEN>"
+python3 trace-zeek.py --server ${origin} --log /opt/zeek/logs/current/conn.log --sensor-id lab-gateway`}</pre>
         <p className="small muted">The sensor reads the local TCP connection table every 15 s (addresses, ports, state and, optionally, process names) and uploads it with
           a bearer token. No packet contents, URLs or DNS names are collected. Each batch has an id, so retries are never counted twice.</p>
       </Card>

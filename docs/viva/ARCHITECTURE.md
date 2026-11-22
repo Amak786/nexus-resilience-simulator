@@ -23,13 +23,17 @@
 
 | Component | Responsibility | Why this way |
 | --- | --- | --- |
-| Sensor scripts | Read the OS connection table, send metadata batches | A hosted website cannot see a local network; an agent on the machine can, with the owner's permission |
+| Sensor scripts | Read the OS connection table (PowerShell, bash) or follow Zeek `conn.log` (Python), send metadata batches | A hosted website cannot see a local network; an agent on the machine can, with the owner's permission |
 | `EventStore` | Validation, deduplication, aggregation into flows, retention | Polling sees the same connection repeatedly; one flow with first/last seen and a count is the truthful model |
 | `ThreatIntelService` | Scheduled list downloads, status, on-demand enrichment | Lists change slowly (hourly is enough and respects providers); lookups never block on downloads |
 | `AnalysisService` | Rules, scoring, graph and algorithms | Pure Java, unit-testable without HTTP |
 | `TraceController` | REST API, auth levels, SSE stream | One place to enforce tokens and limits |
 | `AnalystService` / `AnalystTools` | Grounded AI explanations | Tools return computed results; the model cannot read raw data |
 | React frontend | Display only | Logic stays testable in one place |
+
+## Persistence
+`SnapshotService` (optional, `TRACE_DATA_DIR`) writes the event store to JSON every minute via a temporary file and an atomic move, and
+reloads it on start-up, dropping records older than the retention window.
 
 ## Why one process and in-memory storage
 The target is a single lab or small office: thousands of flows per day fit easily in memory, and a single free container keeps the cost at

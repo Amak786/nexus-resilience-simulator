@@ -50,7 +50,7 @@ class AnalystServiceTest {
         assertEquals("INTEL_FEODO:50.16.16.211", f.at("/data/findings/0/id").asText());
         assertTrue(f.get("source").asText().contains("TRACE rules"));
         var inv = tools.execute("investigate_ip", M.createObjectNode().put("ip", "50.16.16.211"));
-        assertEquals("abuse.ch Feodo Tracker", inv.at("/data/intel/0/list").asText());
+        assertEquals("abuse.ch Feodo Tracker", inv.at("/data/results/0/intel/0/list").asText());
         var net = tools.execute("network_summary", M.createObjectNode());
         assertEquals(5, net.at("/data/nodes").asInt(), "sensor, 2 processes, 2 remotes");
         var st = tools.execute("get_source_status", M.createObjectNode());
@@ -64,7 +64,7 @@ class AnalystServiceTest {
     void toolErrors() {
         assertTrue(tools.execute("block_ip", M.createObjectNode()).has("error"));
         assertTrue(tools.execute("get_finding", M.createObjectNode().put("id", "nope")).has("error"));
-        assertTrue(tools.execute("investigate_ip", M.createObjectNode().put("ip", "evil.example")).has("error"));
+        assertTrue(tools.execute("investigate_ip", M.createObjectNode().put("ip", "http://evil.example/x")).has("error"));
         assertTrue(tools.execute("explain_algorithm", M.createObjectNode().put("name", "quantum")).has("error"));
     }
 

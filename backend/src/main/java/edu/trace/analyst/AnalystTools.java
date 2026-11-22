@@ -35,8 +35,9 @@ public class AnalystTools {
                     Map.of("limit", Map.of("type", "integer", "description", "1-10")), List.of()),
             new ToolSpec("get_finding", "One finding by id with full evidence, what is known, what is uncertain and suggested next steps.",
                     Map.of("id", Map.of("type", "string")), List.of("id")),
-            new ToolSpec("investigate_ip", "Investigate one IPv4/IPv6 literal: local observations, threat-list matches, announcing network (RIPEstat) "
-                    + "and AbuseIPDB if configured. Host names are not accepted.", Map.of("ip", Map.of("type", "string")), List.of("ip")),
+            new ToolSpec("investigate_ip", "Investigate an IPv4/IPv6 address or a domain name (domains are resolved with DNS and every address is "
+                    + "checked): local observations, threat-list matches, announcing network (RIPEstat) and AbuseIPDB if configured.",
+                    Map.of("ip", Map.of("type", "string", "description", "IP address or domain name")), List.of("ip")),
             new ToolSpec("network_summary", "Graph statistics computed now: nodes, edges, DSU components, articulation points, bridges, most central "
                     + "nodes (Brandes betweenness) and the change in remote addresses over the last 15 minutes.", Map.of(), List.of()),
             new ToolSpec("explain_algorithm", "Purpose, complexity and limitations of one TRACE algorithm from the catalogue.",
@@ -75,7 +76,7 @@ public class AnalystTools {
                             .orElse(error("no finding with id " + id));
                 }
                 case "investigate_ip" -> wrap("investigation", "sensor observations + abuse.ch / Spamhaus lists + RIPEstat (+ AbuseIPDB if configured)",
-                        mapper.valueToTree(analysis.investigate(input == null ? null : input.path("ip").asText(null), true, true)));
+                        mapper.valueToTree(analysis.lookup(input == null ? null : input.path("ip").asText(null), true)));
                 case "network_summary" -> {
                     AnalysisService.GraphView g = analysis.graph(60);
                     ObjectNode n = mapper.createObjectNode();

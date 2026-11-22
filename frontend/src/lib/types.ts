@@ -20,7 +20,7 @@ export interface SensorStatus {
 }
 export interface SourcesResponse {
   serverTime: string; intel: FeedStatus[]; viewerConfigured: boolean; ingestConfigured: boolean; viewer: boolean;
-  sensors: SensorStatus[]; mode: 'LIVE' | 'HISTORICAL' | 'NO_SENSOR'; retentionHours: number;
+  sensors: SensorStatus[]; mode: 'LIVE' | 'HISTORICAL' | 'NO_SENSOR'; retentionHours: number; storage: string;
   bloom: { bits: number; hashes: number; inserted: number; theoreticalFpr: number; screened: number; possiblyPresent: number; confirmed: number; falsePositives: number };
 }
 
@@ -94,7 +94,8 @@ export interface BloomLabResponse {
   bits: number; hashes: number; inserted: number; theoreticalFpr: number; probes: number; probeFalsePositives: number; measuredFpr: number;
   results: { id: string; bloom: string; exactPresent: boolean; verdict: string }[]; note: string;
 }
-export interface AlgorithmInfo { id: string; name: string; syllabusUnit: string; javaClass: string; time: string; space: string; usedIn: string; limitations: string }
+export interface AlgorithmInfo { id: string; name: string; syllabusUnit: string; javaClass: string; time: string; space: string; usedIn: string; limitations: string; whyChosen: string; vivaDemo: string }
 export interface BenchmarkRow { size: string; primary: string; primaryMedianMs: number; primaryMinMs: number; primaryOps: number; baseline: string; baselineMedianMs: number | null; baselineOps: number | null; quality: string }
 export interface BenchmarkReport { algorithm: string; title: string; opsMeaning: string; warmups: number; repetitions: number; rows: BenchmarkRow[]; environment: string; methodology: string[] }
 export interface SelfCheckReport { allPassed: boolean; seed: number; checks: { algorithm: string; property: string; cases: number; passed: boolean; detail: string; ms: number }[] }
+export interface Lookup { query: string; kind: 'IP' | 'DOMAIN'; domain: string | null; resolvedAt: string | null; dnsError: string | null; results: Investigation[]; note: string }

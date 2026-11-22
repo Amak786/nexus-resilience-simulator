@@ -1,4 +1,4 @@
-# Viva questions (40)
+# Viva questions (43)
 
 **1. What problem does TRACE solve?** When a machine makes an unfamiliar connection, TRACE shows what is known about the remote address,
 which public evidence exists, how it relates to other observed activity, and what to check next — with sources, times and uncertainty.
@@ -117,3 +117,12 @@ and explains findings in plain language for small IT teams and colleges.
 
 **40. What is your own contribution?** The ingestion model, rule engine and scoring, graph model, all assessed algorithm implementations,
 sensors, the evidence-first UI and the grounding design of the AI analyst — with the tests that check them.
+
+**41. How does a domain lookup work without risking SSRF?** The server only asks DNS for the name (with a 4-second timeout) and checks each
+returned address like an IP lookup. It never opens a connection to the domain. URLs, ports and paths are rejected by validation.
+
+**42. How does TRACE use Zeek?** `sensor/trace-zeek.py` follows Zeek's `conn.log` (TSV or JSON) on a monitoring host and forwards only
+time, protocol, addresses, ports and connection state to the same authenticated ingestion API used by the other sensors.
+
+**43. What happens to data when the server restarts?** By default observations are in memory and are lost. With `TRACE_DATA_DIR` the store is
+written to disk every minute (temporary file + atomic move) and reloaded at start; on Render's free plan the disk itself is ephemeral.

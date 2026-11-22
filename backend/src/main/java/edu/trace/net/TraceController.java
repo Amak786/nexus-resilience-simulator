@@ -50,6 +50,7 @@ public class TraceController {
     private final EventStore store;
     private final AnalysisService analysis;
     private final ThreatIntelService intel;
+    private final SnapshotService snapshots;
     private final byte[] ingestToken;
     private final byte[] viewToken;
     private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
@@ -57,11 +58,12 @@ public class TraceController {
     private final Map<String, long[]> lookupWindows = new ConcurrentHashMap<>();
     private final SecureRandom random = new SecureRandom();
 
-    public TraceController(EventStore store, AnalysisService analysis, ThreatIntelService intel,
+    public TraceController(EventStore store, AnalysisService analysis, ThreatIntelService intel, SnapshotService snapshots,
                            @Value("${TRACE_INGEST_TOKEN:}") String ingestToken, @Value("${TRACE_VIEW_TOKEN:}") String viewToken) {
         this.store = store;
         this.analysis = analysis;
         this.intel = intel;
+        this.snapshots = snapshots;
         this.ingestToken = token(ingestToken, "TRACE_INGEST_TOKEN");
         this.viewToken = token(viewToken, "TRACE_VIEW_TOKEN");
         log.info("token state: ingest={}, viewer={}", state(this.ingestToken), state(this.viewToken));
@@ -180,6 +182,7 @@ public class TraceController {
         m.put("sensors", sensors);
         m.put("mode", sensors.isEmpty() ? "NO_SENSOR" : sensors.stream().anyMatch(s -> "LIVE".equals(s.get("status"))) ? "LIVE" : "HISTORICAL");
         m.put("retentionHours", store.retention().toHours());
+        m.put("storage", snapshots.enabled() ? "MEMORY_WITH_DISK_SNAPSHOT" : "MEMORY_ONLY");
         return m;
     }
 
@@ -189,6 +192,14 @@ public class TraceController {
     public AnalysisService.Investigation investigate(@RequestParam String ip, HttpServletRequest req) {
         limitLookups(clientId(req));
         return analysis.investigate(ip, isViewer(req), true);
+    }
+
+    @Tag(name = "Investigations")
+    @Operation(summary = "Investigate an IP address or a domain name (domain: DNS resolution only, every address checked)")
+    @GetMapping("/lookup")
+    public AnalysisService.Lookup lookup(@RequestParam String q, HttpServletRequest req) {
+        limitLookups(clientId(req));
+        return analysis.lookup(q, isViewer(req));
     }
 
     // ---------------------------------------------------------------- viewer

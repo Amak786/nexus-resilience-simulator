@@ -190,7 +190,7 @@ function RbLab() {
 interface SegResult { initialSeries: number[]; finalSeries: number[]; results: { index: number; type: string; from: number; to: number; value: number | null; result: number | null; argIndex: number | null; nodesVisited: number; matchesNaiveBaseline: boolean }[]; complexity: string }
 
 function SegLab() {
-  const [series, setSeries] = useState('120, 135, 150, 210, 260, 240, 190, 170, 160, 155, 140, 130');
+  const [series, setSeries] = useState('3, 5, 4, 12, 30, 28, 9, 6, 5, 4, 7, 3');
   const [text, setText] = useState('SUM 0 11\nMAX 0 11\nADD 3 6 40\nMAX 0 11\nSET 4 0\nSUM 2 7');
   const [localErr, setLocalErr] = useState<string | null>(null);
   const req = useRequest<SegResult>();
@@ -211,7 +211,7 @@ function SegLab() {
   return (
     <div className="grid-2">
       <Card title="Series and operations">
-        <Field label="Series (e.g. hourly demand)"><textarea rows={2} value={series} onChange={(e) => setSeries(e.target.value)} /></Field>
+        <Field label="Series (e.g. observations per minute)"><textarea rows={2} value={series} onChange={(e) => setSeries(e.target.value)} /></Field>
         <Field label="SUM l r · MIN l r · MAX l r · ADD l r v · SET i v" hint="0-based, inclusive ranges"><textarea rows={7} value={text} onChange={(e) => setText(e.target.value)} /></Field>
         <Button busy={req.busy} onClick={run}>Run segment tree</Button>
         {localErr && <div className="alert error">{localErr}</div>}
@@ -311,10 +311,21 @@ function TspLab() {
 
 function Catalog({ items }: { items: AlgorithmInfo[] }) {
   return (
-    <Card title="Algorithms, where they are used, complexity and limitations (served by the API)">
-      <div className="table-scroll"><table className="table small"><thead><tr><th>Algorithm</th><th>Workflow</th><th>Time</th><th>Space</th><th>Limitations</th></tr></thead>
-        <tbody>{items.map((a) => <tr key={a.id}><td><b>{a.name}</b><div className="muted">{a.syllabusUnit} · {a.javaClass}</div></td><td>{a.usedIn}</td><td>{a.time}</td><td>{a.space}</td><td>{a.limitations}</td></tr>)}</tbody></table></div>
-      <p className="small">Ford-Fulkerson, Edmonds-Karp and min cut are one technique family (network flow), compared on the same graph.</p>
+    <Card title={`All ${items.length} algorithms (served by the API)`}>
+      <p className="small muted">For each: where TRACE uses it, complexity, why it was chosen, its limits, and how to demonstrate it. Execution time is shown
+        by each tab and by the Benchmarks tab, measured on the server.</p>
+      <div className="algo-grid">{items.map((a) => (
+        <div key={a.id} className="algo-card">
+          <b>{a.name}</b>
+          <div className="muted small">{a.syllabusUnit} · <code>{a.javaClass}</code></div>
+          <dl className="small">
+            <dt>Real purpose in TRACE</dt><dd>{a.usedIn}</dd>
+            <dt>Complexity</dt><dd>time {a.time} · space {a.space}</dd>
+            <dt>Why this algorithm</dt><dd>{a.whyChosen}</dd>
+            <dt>Limits</dt><dd>{a.limitations}</dd>
+            <dt>Viva demonstration</dt><dd>{a.vivaDemo}</dd>
+          </dl>
+        </div>))}</div>
     </Card>
   );
 }

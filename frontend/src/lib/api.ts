@@ -1,5 +1,5 @@
 import type {
-  AlgorithmInfo, AnalystResponse, ApiErrorBody, AStarComparison, BenchmarkReport, FindingsResponse, GraphView, Investigation,
+  AlgorithmInfo, AnalystResponse, ApiErrorBody, AStarComparison, BenchmarkReport, FindingsResponse, GraphView, Investigation, Lookup,
   Observation, OverviewResponse, PathResult, SelfCheckReport, SourcesResponse, Status, TimeSeries, ValidationIssue,
 } from './types';
 
@@ -70,6 +70,7 @@ export const api = {
   decide: (id: string, status: Status, note?: string) => request<unknown>('POST', `/api/findings/${encodeURIComponent(id)}/decision`, { status, note }),
   observations: (ip?: string) => request<Observation[]>('GET', `/api/observations?limit=300${ip ? `&ip=${encodeURIComponent(ip)}` : ''}`),
   investigate: (ip: string) => request<Investigation>('GET', `/api/investigate?ip=${encodeURIComponent(ip)}`),
+  lookup: (q: string) => request<Lookup>('GET', `/api/lookup?q=${encodeURIComponent(q)}`),
   ticket: () => request<{ ticket: string }>('POST', '/api/stream/ticket'),
   analystInfo: () => request<{ aiConfigured: boolean; model: string; tools: string[] }>('GET', '/api/analyst/info'),
   ask: (question: string) => request<AnalystResponse>('POST', '/api/analyst/ask', { question }),
